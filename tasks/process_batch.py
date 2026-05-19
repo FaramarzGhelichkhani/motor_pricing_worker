@@ -47,54 +47,68 @@ def run_processing_cycle(db: Session, batch_size: int = 30):
     for res in ai_result.results:
         token = res.token
         if token not in features_map: continue
-        features = features_map[token]
-        final_model = normalize_ai_output( res.corrected_model)
         
-        if not res.is_valid_ad:
-            features["status"] = "INVALID_AD"
-        else:
-            features["status"] = "QUARANTINE" if res.confidence_score < 0.85 else "PROCESSED_OK"
-        
-        features["is_valid_ad"] = 1 if res.is_valid_ad else 0
-        features["is_system_guess_correct"]= 1 if res.is_system_guess_correct else 0 
-        features["real_brand"] = res.corrected_brand
-        features["real_model"] = final_model
-        features["is_copy"] = 1 if res.is_copy else 0
-        features["seller_type"] = res.seller_type
-        features["technical_score"] = res.technical_score
-        features["is_real_price"] = 1 if res.is_real_price else 0
-        
-        features["flag_clean"] = 1 if res.flag_clean else 0
-        features["flag_accessories"] = 1 if res.flag_accessories else 0
-        features["flag_new_consumables"] = 1 if res.flag_new_consumables else 0
-        features["flag_first_owner"] = 1 if res.flag_first_owner else 0
-        features["flag_new"] = 1 if res.flag_new else 0
-        features["flag_white_doc"] = 1 if res.flag_white_doc else 0
-        features["flag_full_docs"] = 1 if res.flag_full_docs else 0
-        features["flag_incomplete_docs"] = 1 if res.flag_incomplete_docs else 0
-        features["flag_insurance"] = 1 if res.flag_insurance else 0
-        features["flag_accident"] = 1 if res.flag_accident else 0
-        features["flag_engine_issue"] = 1 if res.flag_engine_issue else 0
-        features["flag_installment"] = 1 if res.flag_installment else 0
-        features["flag_swap"] = 1 if res.flag_swap else 0
-        features["flag_urgent"] = 1 if res.flag_urgent else 0
-        features["flag_service"] = 1 if res.flag_service else 0
-        features["url"] = f"https://divar.ir/v/{token}"
-        
-        # ساخت رکورد ORM
-        processed_obj = ProcessedListing(
-            token=token,
-            **features            
-        )
-        
-        db.merge(processed_obj) 
-        
-        # آپدیت استاتوس رکورد خام
-        raw_db_obj = db.query(RawListing).filter(RawListing.token == token).first()
-        raw_db_obj.is_processed = 1
-        success_count += 1
+        try:
+            features = features_map[token]
+            final_model = normalize_ai_output( res.corrected_model)
+            
+            if not res.is_valid_ad:
+                features["status"] = "INVALID_AD"
+            else:
+                features["status"] = "QUARANTINE" if res.confidence_score < 0.85 else "PROCESSED_OK"
+            
+            features["is_valid_ad"] = 1 if res.is_valid_ad else 0
+            features["is_system_guess_correct"]= 1 if res.is_system_guess_correct else 0 
+            features["real_brand"] = res.corrected_brand
+            features["real_model"] = final_model
+            features["is_copy"] = 1 if res.is_copy else 0
+            features["seller_type"] = res.seller_type
+            features["technical_score"] = res.technical_score
+            features["is_real_price"] = 1 if res.is_real_price else 0
+            
+            features["flag_clean"] = 1 if res.flag_clean else 0
+            features["flag_accessories"] = 1 if res.flag_accessories else 0
+            features["flag_new_consumables"] = 1 if res.flag_new_consumables else 0
+            features["flag_first_owner"] = 1 if res.flag_first_owner else 0
+            features["flag_new"] = 1 if res.flag_new else 0
+            features["flag_white_doc"] = 1 if res.flag_white_doc else 0
+            features["flag_full_docs"] = 1 if res.flag_full_docs else 0
+            features["flag_incomplete_docs"] = 1 if res.flag_incomplete_docs else 0
+            features["flag_insurance"] = 1 if res.flag_insurance else 0
+            features["flag_accident"] = 1 if res.flag_accident else 0
+            features["flag_engine_issue"] = 1 if res.flag_engine_issue else 0
+            features["flag_installment"] = 1 if res.flag_installment else 0
+            features["flag_swap"] = 1 if res.flag_swap else 0
+            features["flag_urgent"] = 1 if res.flag_urgent else 0
+            features["flag_service"] = 1 if res.flag_service else 0
+            features["url"] = f"https://divar.ir/v/{token}"
+            
+            # ساخت رکورد ORM
+            processed_obj = ProcessedListing(
+                token=token,
+                **features            
+            )
+            
+            db.merge(processed_obj) 
+            
+            # آپدیت وضعیت به پردازش شده (1)
+            raw_db_obj = db.query(RawListing).filter(RawListing.token == token).first()
+            raw_db_obj.is_processed = 1
+            
+            db.commit() 
+            success_count += 1
+            
+        except Exception as e:
+            db.rollback() # اگر ارور داد، فقط همین تراکنش لغو می‌شود
+            print(f"❌ DB Save Error on token {token}: {e}")
+            try:
+                failed_raw = db.query(RawListing).filter(RawListing.token == token).first()
+                if failed_raw:
+                    failed_raw.is_processed = -1 
+                    db.commit()
+            except:
+                db.rollback()
 
-    db.commit() # تمام ذخیره‌سازی‌ها در یک تراکنش امن انجام می‌شود
     return success_count
 
 def _save_rejected(db, token, f, reason):

@@ -7,6 +7,7 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME", "")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 30))
+TARGET_PAGE = int(os.getenv("TARGET_PAGE", 30))
 
 if ENVIRONMENT == "production":
     DATABASE_URL = os.getenv("DATABASE_URL")
