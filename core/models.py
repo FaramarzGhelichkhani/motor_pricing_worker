@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, DateTime
+from sqlalchemy import Column, String, Integer, Text, DateTime, BigInteger
 from sqlalchemy.sql import func
 from core.database import Base
 
@@ -34,7 +34,7 @@ class ProcessedListing(Base):
     district = Column(String)
     
     # Numeric / Core Fields
-    price = Column(Integer)
+    price = Column(BigInteger)
     production_year = Column(Integer)
     mileage = Column(Integer)
     engine_volume = Column(Integer)
