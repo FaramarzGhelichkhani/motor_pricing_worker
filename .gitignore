@@ -1,0 +1,70 @@
+# ========================
+# Environment Variables
+# ========================
+.env
+.env.local
+.env.*
+
+# ========================
+# Virtual Environments
+# ========================
+venv/
+env/
+.venv/
+ENV/
+
+# ========================
+# Databases
+# ========================
+*.sqlite3
+*.db
+divar_raw_data.db
+local_dev_db.sqlite3
+
+# ========================
+# Python Byte-compiled
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ========================
+# C extensions
+# ========================
+*.so
+
+# ========================
+# Distribution / Packaging
+# ========================
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ========================
+# Logs and Databases
+# ========================
+*.log
+
+# ========================
+# IDEs / Editors / OS
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
