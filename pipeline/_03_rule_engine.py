@@ -44,6 +44,9 @@ def normalize_ai_output(ai_brand, ai_model):
     if ai_brand in ["Sigma", "Zigma", "xigma"]:
         return "Xigma", ai_model
 
+    if ai_brand in ["honda", "Hunda"]:
+        return "Honda", ai_model
+
     # 1. اگر خروجی خالی بود همان را برگردان
     if not ai_model:
         return  ai_brand, ai_model
@@ -53,7 +56,7 @@ def normalize_ai_output(ai_brand, ai_model):
     # 2. بررسی تطبیق دقیق (اگر جمی‌نای از قبل نام کانونیکال را درست داده بود)
     for platform_name in GLOBAL_PLATFORM_MAP.keys():
         if search_model == platform_name.lower():
-            return platform_name # برگرداندن با حروف بزرگ/کوچک استاندارد
+            return ai_brand, platform_name # برگرداندن با حروف بزرگ/کوچک استاندارد
 
     # 3. بررسی کلمات کلیدی فقط برای مدل
     found_platforms = []
@@ -67,7 +70,7 @@ def normalize_ai_output(ai_brand, ai_model):
     # 4. اگر دقیقاً یک پلتفرم استاندارد پیدا شد، مدل را کانونیکال کن
     if len(found_platforms) == 1:
         canonical_model = found_platforms[0]
-        return canonical_model
+        return ai_brand, canonical_model
         
     # 5. اگر نتوانست مچ کند (مثلاً موتور جدیدی بود) به هوش مصنوعی اعتماد کن و دست نزن
     return ai_brand, ai_model

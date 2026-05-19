@@ -1,4 +1,3 @@
-import time
 from sqlalchemy.orm import Session
 from core.models import RawListing, ProcessedListing
 from pipeline import extract_raw_cleaned_features
@@ -51,7 +50,7 @@ def run_processing_cycle(db: Session, batch_size: int = 30):
         
         try:
             features = features_map[token]
-            final_model = normalize_ai_output( res.corrected_model)
+            final_brand ,  final_model = normalize_ai_output(res.corrected_brand , res.corrected_model)
             
             if not res.is_valid_ad:
                 features["status"] = "INVALID_AD"
@@ -60,7 +59,7 @@ def run_processing_cycle(db: Session, batch_size: int = 30):
             
             features["is_valid_ad"] = 1 if res.is_valid_ad else 0
             features["is_system_guess_correct"]= 1 if res.is_system_guess_correct else 0 
-            features["real_brand"] = res.corrected_brand
+            features["real_brand"] = final_brand
             features["real_model"] = final_model
             features["is_copy"] = 1 if res.is_copy else 0
             features["seller_type"] = res.seller_type
