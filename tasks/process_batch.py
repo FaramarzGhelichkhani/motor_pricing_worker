@@ -5,6 +5,7 @@ from pipeline import extract_raw_cleaned_features
 from pipeline import validate_pre_conditions
 from pipeline import rule_engine_guess, normalize_ai_output
 from pipeline import AICritic
+from pipeline import get_mileage_bucket
 
 ai_client = AICritic()
 
@@ -70,7 +71,6 @@ def run_processing_cycle(db: Session, batch_size: int = 30):
             features["flag_accessories"] = 1 if res.flag_accessories else 0
             features["flag_new_consumables"] = 1 if res.flag_new_consumables else 0
             features["flag_first_owner"] = 1 if res.flag_first_owner else 0
-            features["flag_new"] = 1 if res.flag_new else 0
             features["flag_white_doc"] = 1 if res.flag_white_doc else 0
             features["flag_full_docs"] = 1 if res.flag_full_docs else 0
             features["flag_incomplete_docs"] = 1 if res.flag_incomplete_docs else 0
@@ -82,6 +82,9 @@ def run_processing_cycle(db: Session, batch_size: int = 30):
             features["flag_urgent"] = 1 if res.flag_urgent else 0
             features["flag_service"] = 1 if res.flag_service else 0
             features["url"] = f"https://divar.ir/v/{token}"
+            flag_new = 1 if res.flag_new else 0
+            features["flag_new"] = flag_new
+            features["mileage_bucket"]= get_mileage_bucket(features.get("mileage"), flag_new)
             
             # ساخت رکورد ORM
             processed_obj = ProcessedListing(

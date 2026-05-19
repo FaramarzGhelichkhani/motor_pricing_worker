@@ -183,9 +183,15 @@ GLOBAL_PLATFORM_MAP = {
     # ================= YAMAHA PLATFORMS =================
     "Aerox 155": {
         "parent_brand": "Yamaha",
-        "keywords": ["ایروکس 155", "aerox155", "ایروکس", "aerox", "nvx 155"],
+        "keywords": ["ایروکس 155", "aerox155", "155ایروکس", "aerox 155", "nvx 155"],
         "exclusions": ["170", "180"],
-        "copy_brands": ["Kavir", "Niroo Motor", "Pishtaz", "Salar Gostar", "Takht-e-Jamshid", "Hani"]
+        "copy_brands": ["Kavir", "Niroo Motor", "Pishtaz", "Salar Gostar", "Takht-e-Jamshid", "Hani", "Kabir", "Xigma"]
+    },
+    "Aerox 170": {
+        "parent_brand": "Yamaha",
+        "keywords": ["ایروکس 170", "aerox170", "ایروکس 170", "aerox 170",],
+        "exclusions": ["155", "180"],
+        "copy_brands": ["Kabir"]
     },
     "NVX 150": {
         "parent_brand": "Yamaha",
@@ -289,6 +295,7 @@ GLOBAL_PLATFORM_MAP = {
     "Galaxy R 155": {"parent_brand": "SYM", "keywords": ["گلکسی r155", "galaxy r155"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
     "Galaxy OR 125": {"parent_brand": "SYM", "keywords": ["or125"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
     "Galaxy NH 249": {"parent_brand": "SYM", "keywords": ["nh 249", "گلکسی nh 249"], "exclusions": ["180"], "copy_brands": ["Niroo Motor"]},
+    "Fiddle 3": {"parent_brand": "SYM", "keywords": ["fiddle 3", "فیدل 3", "فیدل3"], "exclusions": ["4"], "copy_brands": []},
     "Fiddle 4": {"parent_brand": "SYM", "keywords": ["fiddle 4", "فیدل 4", "فیدل ۴"], "exclusions": ["3"], "copy_brands": []},
     "ADV 175": {"parent_brand": "SYM", "keywords": ["adv 175", "adv175", "هاسکی 175", "husky adv175"], "exclusions": ["150", "160", "350"], "copy_brands": []},
 
@@ -313,6 +320,12 @@ GLOBAL_PLATFORM_MAP = {
     "QJ 250": {"parent_brand": "CFMOTO", "keywords": ["qj 250", "کیوجی 250", "srk 250"], "exclusions": ["150"], "copy_brands": ["Kavir"]},
     "K249N": {"parent_brand": "Keeway", "keywords": ["k249n", "کی وی 249n"], "exclusions": ["k249r"], "copy_brands": []},
     "Viste 250": {"parent_brand": "Keeway", "keywords": ["viste 250", "کی وی ویسته 250","ویسته 250"], "exclusions": ["k249r"], "copy_brands": []},
+
+    # ================= Hyousong =================
+    "Aquila 250":{"parent_brand":"Hyosung" , "keywords":["هیوسانگ اکوییلا 250", "اکوییلا 250"], "exclusions":[],  "copy_brands": []},
+
+    # ================= Zontes =================
+    "250 R": {"parent_brand":"Zontes", "keywords":["Zontes 250 R"], "exclusion":[], "copy_brands": []},
 
     # ================= EXCLUSIVE IRANIAN PLATFORMS =================
     # مدل‌هایی که مستقیماً متعلق به یک شرکت ایرانی هستند (والد دیگری ندارند)

@@ -31,15 +31,22 @@ def rule_engine_guess(title, description, brand_model_raw):
     return real_brand, platform_name
 
 
-def normalize_ai_output(ai_model):
+def normalize_ai_output(ai_brand, ai_model):
     """
     فقط مدل را کانونیکال می‌کند و برند را دقیقاً همانطور که هوش مصنوعی داده حفظ می‌کند.
     مثال 1: ("Behro", "Aerox") -> ("Behro", "Aerox 155")
     مثال 2: ("Benelli", "TNT 300") -> ("Benelli", "Benelli 300")
     """
+    
+    if ai_brand=="Kavir" and ai_model=="KLD 200":
+        return "Kabir", ai_model
+    
+    if ai_brand in ["Sigma", "Zigma", "xigma"]:
+        return "Xigma", ai_model
+
     # 1. اگر خروجی خالی بود همان را برگردان
     if not ai_model:
-        return  ai_model
+        return  ai_brand, ai_model
 
     search_model = str(ai_model).lower().strip()
     
@@ -63,4 +70,4 @@ def normalize_ai_output(ai_model):
         return canonical_model
         
     # 5. اگر نتوانست مچ کند (مثلاً موتور جدیدی بود) به هوش مصنوعی اعتماد کن و دست نزن
-    return ai_model
+    return ai_brand, ai_model
