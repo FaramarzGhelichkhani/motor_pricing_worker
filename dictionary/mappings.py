@@ -425,7 +425,8 @@ GLOBAL_PLATFORM_MAP = {
     "Lucky 180": {"parent_brand": "SYM", "keywords": ["lucky 180", "لاکی 180"], "exclusions": ["185", "200", "250"], "copy_brands": []},
     "Lucky 200": {"parent_brand": "SYM", "keywords": ["lucky 200", "لاکی 200"], "exclusions": ["185", "180", "250"], "copy_brands": []},
     "Lucky 250": {"parent_brand": "SYM", "keywords": ["lucky 250", "لاکی 250"], "exclusions": ["185", "180", "200"], "copy_brands": []},
-    "Joymax 300": {"parent_brand": "SYM", "keywords": ["joymax 300", "جوی مکس 300"], "exclusions": [], "copy_brands": []},
+    "Joymax 250": {"parent_brand": "SYM", "keywords": ["joymax 250", "جوی مکس 250"], "exclusions": ["300"], "copy_brands": []},
+    "Joymax 300": {"parent_brand": "SYM", "keywords": ["joymax 300", "جوی مکس 300"], "exclusions": ["250"], "copy_brands": []},
     "CLB 125": {"parent_brand": "SYM", "keywords": ["clb 125", "clb125"], "exclusions": [], "copy_brands": []},
 
     # ================= VESPA / PIAGGIO PLATFORMS =================
