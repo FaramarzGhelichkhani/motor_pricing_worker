@@ -32,7 +32,8 @@ def run_processing_cycle(db: Session, batch_size: int = 30):
                 "token": raw.token,
                 "title": features["title"],
                 "description": features["description"],
-                "sys_brand": sys_brand, "sys_model": sys_model
+                "sys_brand": sys_brand, "sys_model": sys_model, 
+                "engine_volume": features["engine_volume"],
             })
         except Exception as e:
             print(f"Error prepping {raw.token}: {e}")
@@ -50,7 +51,7 @@ def run_processing_cycle(db: Session, batch_size: int = 30):
         
         try:
             features = features_map[token]
-            final_brand ,  final_model = normalize_ai_output(res.corrected_brand , res.corrected_model)
+            final_brand, final_model = normalize_ai_output(res.corrected_brand, res.corrected_model)
             
             if not res.is_valid_ad:
                 features["status"] = "INVALID_AD"

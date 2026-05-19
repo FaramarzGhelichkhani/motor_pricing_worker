@@ -70,3 +70,11 @@ def validate_pre_conditions(features):
         return False, "INVALID_OLD_YEAR"
 
     return True, "OK"
+
+def normalize_text(text):
+    """نرمال‌سازی: اعداد به انگلیسی، حذف نیم‌فاصله و اسپیس‌های اضافی"""
+    if not isinstance(text, str): return ""
+    text = text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+    text = text.lower().replace('\u200c', ' ')
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
