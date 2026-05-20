@@ -2,9 +2,10 @@ from sqlalchemy.orm import Session
 from core.models import RawListing, ProcessedListing
 from pipeline import extract_raw_cleaned_features
 from pipeline import validate_pre_conditions
-from pipeline import rule_engine_guess, normalize_ai_output
+from pipeline import  normalize_ai_output
 from pipeline import AICritic
 from pipeline import get_mileage_bucket
+from dictionary.classifier_manager import engine 
 
 ai_client = AICritic()
 
@@ -25,7 +26,7 @@ def run_processing_cycle(db: Session, batch_size: int = 30):
                 _save_rejected(db, raw.token, features, reject_reason)
                 continue
 
-            sys_brand, sys_model = rule_engine_guess(features["title"], features["description"], features["brand_model_raw"])
+            sys_brand, sys_model = engine.rule_engine_guess(features["title"], features["description"], features["brand_model_raw"])
             
             features_map[raw.token] = features
             batch_payloads.append({
