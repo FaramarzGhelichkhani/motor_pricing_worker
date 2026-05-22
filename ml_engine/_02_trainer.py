@@ -7,16 +7,15 @@ from catboost import CatBoostRegressor, Pool
 from sklearn.linear_model import QuantileRegressor
 from sqlalchemy.orm import Session
 from core.models import ModelIndexHistory, PriceSurface
-
+from core.config import RELIABLE_MAPE, LOOKBACK_DAYS
 # --- Constants ---
-LOOKBACK_DAYS = 25
+
 MIN_MODEL_ROWS = 15
 CURRENT_MARKET_YEAR = jdatetime.date.today().year
 EXPECTED_KM_PER_YEAR = 7000
 VALIDATION_RATIO = 0.2
 MIN_VALID_ROWS = 3
 MIN_FIT_ROWS = 5
-RELIABLE_MAPE = 12.0
 
 BUCKET_TYPICAL_MILEAGE = {
     0: 0, 1: 500, 2: 3000, 3: 7500, 4: 15000, 
