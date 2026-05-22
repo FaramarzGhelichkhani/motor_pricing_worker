@@ -1,7 +1,9 @@
-from sqlalchemy import Column, String, Integer, Text, DateTime, BigInteger
+from sqlalchemy import Column, String, Integer, Text, BigInteger, Float, Boolean, Date, DateTime, ForeignKey, JSON, Index, UniqueConstraint
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from core.database import Base
-
+from datetime import datetime
+import datetime as dt
 
 class CrawlerState(Base):
     __tablename__ = "crawler_state"
@@ -81,3 +83,90 @@ class ProcessedListing(Base):
     url = Column(String)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class ModelIndexHistory(Base):
+    """
+    تاریخچه اسنپ‌شات قیمت و کیفیت تخمین برای هر مدل موتور.
+    معادل ModelIndexHistory در جنگو.
+    """
+    __tablename__ = "estimator_modelindexhistory" 
+    id = Column(Integer, primary_key=True, index=True)
+    
+    real_brand = Column(String(100), index=True, nullable=False)
+    real_model = Column(String(100), index=True, nullable=False)
+    
+    date = Column(Date, default=dt.date.today, nullable=False)
+    # date = Column(String(10), nullable=False)
+
+    # -----------------------------
+    # PRICE RANGE
+    # -----------------------------
+    price_low = Column(BigInteger, nullable=False)
+    price_mid = Column(BigInteger, nullable=False)
+    price_high = Column(BigInteger, nullable=False)
+
+    # -----------------------------
+    # DYNAMIC MULTIPLIERS
+    # -----------------------------
+    color_coefficients = Column(JSON, default=dict)
+
+    # -----------------------------
+    # MODEL QUALITY & STATS
+    # -----------------------------
+    mape = Column(Float, default=0.0)
+    sample_count = Column(Integer, default=0)
+    algorithm = Column(String(120), nullable=False)
+    is_reliable = Column(Boolean, default=False, index=True)
+
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # برقراری ارتباط (Relationship) با جدول Surface
+    price_surfaces = relationship("PriceSurface", back_populates="snapshot", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint('real_brand', 'real_model', 'date', name='unique_model_date'),
+        Index('idx_modelindexhistory_date', 'date'),
+        Index('idx_modelindexhistory_bm_date', 'real_brand', 'real_model', 'date'),
+    )
+
+    def __repr__(self):
+        return f"<{self.real_brand} {self.real_model} - {self.date} - MAPE: {self.mape:.1f}%>"
+
+class PriceSurface(Base):
+    """
+    سطوح قیمتی تولید شده توسط مدل هوش مصنوعی.
+    معادل PriceSurface در جنگو.
+    """
+    __tablename__ = "estimator_pricesurface" 
+    id = Column(Integer, primary_key=True, index=True)
+    
+    snapshot_id = Column(Integer, ForeignKey('estimator_modelindexhistory.id', ondelete="CASCADE"), nullable=False, index=True)
+    
+    real_brand = Column(String(100), index=True, nullable=False)
+    real_model = Column(String(100), index=True, nullable=False)
+
+    # ابعاد سطح (Dimensions)
+    year = Column(Integer, index=True, nullable=False)
+    mileage_bucket = Column(Integer, index=True, nullable=False)
+    color = Column(String(32), index=True, nullable=False)
+
+    # -----------------------------
+    # PREDICTED DYNAMIC INTERVAL
+    # -----------------------------
+    price_low = Column(BigInteger, nullable=False)
+    price_mid = Column(BigInteger, nullable=False)
+    price_high = Column(BigInteger, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    snapshot = relationship("ModelIndexHistory", back_populates="price_surfaces")
+
+    __table_args__ = (
+        UniqueConstraint('snapshot_id', 'real_brand', 'real_model', 'year', 'mileage_bucket', 'color', name='uniq_surface_snapshot_cell'),
+        Index('surface_lookup_idx', 'real_brand', 'real_model', 'year', 'mileage_bucket', 'color'),
+        Index('surface_snapshot_idx', 'snapshot_id', 'real_brand', 'real_model'),
+    )
+
+    def __repr__(self):
+        return f"<{self.real_brand} {self.real_model} | y={self.year} | b={self.mileage_bucket} | Mid: {self.price_mid}>"
+    

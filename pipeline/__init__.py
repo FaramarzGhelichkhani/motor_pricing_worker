@@ -4,3 +4,4 @@ from ._02_cleaner import validate_pre_conditions, clean_engine_volume, clean_yea
 from ._03_rule_engine import normalize_ai_output
 from ._04_ai_critic import AICritic
 from ._00_crawler import DivarEnterpriseCrawler
+from ._05_ml_pipeline import run_price_estimation_pipeline

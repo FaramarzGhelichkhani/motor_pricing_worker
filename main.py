@@ -5,8 +5,7 @@ from core.config import BATCH_SIZE, TARGET_PAGE
 from core.models import RawListing
 from pipeline import DivarEnterpriseCrawler
 from tasks.process_batch import run_processing_cycle
-# from tasks.process_batch import run_processing_cycle
-# from tasks.trainer import train_model  # (بعدا اضافه می‌کنید)
+from tasks.estimator import run_price_estimation_pipeline
 # from tasks.transfer import sync_to_remote_db # (بعدا اضافه می‌کنید)
 
 def job_crawl_and_process():
@@ -65,8 +64,8 @@ def job_train_and_transfer():
     
     try:
         # 1. اجرای ماژول آموزش مدل (CatBoost)
-        # print("Training model...")
-        # train_model()
+        print("Training models and estimations...")
+        run_price_estimation_pipeline()
         
         # 2. انتقال به دیتابیس سایت
         # print("Transferring data to remote site...")

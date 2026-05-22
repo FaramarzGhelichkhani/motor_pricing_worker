@@ -114,12 +114,6 @@ GLOBAL_PLATFORM_MAP = {
         "exclusions": ["125", "۱۲۵", "200", "۲۰۰", "click", "کلیک", "cgl", "cd", "cdi", "باکسر", "boxer", "ایروکس", "aerox"],
         "copy_brands": ["Kavir", "Parvaz", "Ehsan", "Lifan", "Savin", "Kabir", "Hamtaz", "Niroo Moharekeh", "Iran Doocharkh", "Zomorod Kavir", "Ashil"]
     },
-    "CG 150": {
-        "parent_brand": "Honda",
-        "keywords": ["cg 150", "cg150", "هوندا سی جی 150", "هوندا 150", "هندا 150", "سی جی 150"],
-        "exclusions": ["125", "200", "click", "کلیک", "cgl", "cd", "cdi"],
-        "copy_brands": ["Kavir", "Parvaz", "Ehsan", "Lifan"]
-    },
     "CG 200": {
         "parent_brand": "Honda",
         "keywords": ["cg 200", "cg200", "هوندا 200", "هندا 200", "سی جی 200"],
@@ -174,13 +168,13 @@ GLOBAL_PLATFORM_MAP = {
         "parent_brand": "Honda",
         "keywords": ["adv150", "adv 150", "ای دی وی 150", "ادی وی 150"],
         "exclusions": ["160", "170", "175", "350"],
-        "copy_brands": ["Kavir", "Kabir", "Niroo Motor", "Nikran Motor", "Toosan"]
+        "copy_brands": ["Kavir", "Kabir", "Niroo Motor", "Nikran Motor", "Toosan", "Hani"]
     },
     "ADV 160": {
         "parent_brand": "Honda",
         "keywords": ["adv160", "adv 160", "ای دی وی 160", "ادی وی 160"],
         "exclusions": ["150", "175", "350"],
-        "copy_brands": ["Hani"]
+        "copy_brands": ["Hani", "Hamtaz"]
     },
     "ADV 350": {"parent_brand": "Honda", "keywords": ["adv350", "adv 350", "ای دی وی 350"], "exclusions": ["150", "160", "175"], "copy_brands": []},
 
@@ -248,7 +242,7 @@ GLOBAL_PLATFORM_MAP = {
         "parent_brand": "Yamaha",
         "keywords": ["ایروکس 155", "aerox155", "ایروکس155", "aerox 155", "آیروکس", "ایروکس", "طرح ایروکس", "طرح آیروکس", "nvx 150", "nvx 155"],
         "exclusions": ["170", "180", "۱۸۰", "کلیک", "click"],
-        "copy_brands": ["Kavir", "Niroo Motor", "Pishtaz", "Salar Gostar", "Takht-e-Jamshid", "Hani", "Kabir", "Xigma", "Hamtaz"]
+        "copy_brands": ["Niroo Motor", "Pishtaz", "Salar Gostar", "Takht-e-Jamshid", "Hani", "Kabir", "Xigma", "Hamtaz"]
     },
     "NMAX 155": {
         "parent_brand": "Yamaha",
@@ -564,7 +558,7 @@ GLOBAL_PLATFORM_MAP = {
     "S2": {"parent_brand": "Kavir", "keywords": ["s2 150", "s2 170", "کویر s2", "s2 170i"], "exclusions": ["s1", "s4", "s5", "s7"], "copy_brands": []},
     "S4 150": {"parent_brand": "Kavir", "keywords": ["s4 150", "کویر s4"], "exclusions": ["s1", "s2", "s5", "s7"], "copy_brands": []},
     "S5 150": {"parent_brand": "Kavir", "keywords": ["s5 150", "کویر s5", "طرح وسپا کویر۱۵۰ s5"], "exclusions": ["s1", "s2", "s4", "s7"], "copy_brands": []},
-    "S7 170": {"parent_brand": "Kavir", "keywords": ["s7 170", "s170", "s7-170", "s7 170i"], "exclusions": ["s1", "s2", "s4", "s5"], "copy_brands": []},
+    "S7 170": {"parent_brand": "Kavir", "keywords": ["s7 170", "s170", "s7-170", "s7 170i", "ایروکس کویر", "طرح آیروکس کویر"], "exclusions": ["s1", "s2", "s4", "s5"], "copy_brands": []},
     "C2": {"parent_brand": "Kavir", "keywords": ["کویـر c2", "kavir c2", "c2 250"], "exclusions": ["c3"], "copy_brands": []},
     "C3": {"parent_brand": "Kavir", "keywords": ["c3 کویر", "c3 250", "kavir c3"], "exclusions": ["c2"], "copy_brands": []},
     "N6": {"parent_brand": "Kavir", "keywords": ["n6 190", "n6 200", "کویر n6"], "exclusions": [], "copy_brands": []},

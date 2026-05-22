@@ -68,3 +68,6 @@ MANIFEST
 *.swo
 .DS_Store
 Thumbs.db
+
+import_data.py
+catboost_info/
