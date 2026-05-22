@@ -1,4 +1,5 @@
 import datetime
+import jdatetime
 from dictionary.mappings import IRANIAN_BRANDS
 import numpy as np
 import pandas as pd
@@ -10,8 +11,7 @@ from core.models import ModelIndexHistory, PriceSurface
 # --- Constants ---
 LOOKBACK_DAYS = 25
 MIN_MODEL_ROWS = 15
-CURRENT_MARKET_YEAR = 1405
-IQR_K = 0.8
+CURRENT_MARKET_YEAR = jdatetime.date.today().year
 EXPECTED_KM_PER_YEAR = 7000
 VALIDATION_RATIO = 0.2
 MIN_VALID_ROWS = 3
