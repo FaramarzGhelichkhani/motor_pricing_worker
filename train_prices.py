@@ -1,4 +1,4 @@
-from pipeline import run_price_estimation_pipeline
+from tasks.estimator import run_price_estimation_pipeline
 from core.database import engine, Base
 Base.metadata.create_all(bind=engine)
 if __name__ == "__main__":
