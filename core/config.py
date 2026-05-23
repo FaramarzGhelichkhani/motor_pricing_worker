@@ -9,8 +9,8 @@ MODEL_NAME = os.getenv("MODEL_NAME", "")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 30))
 TARGET_PAGE = int(os.getenv("TARGET_PAGE", 30))
 RELIABLE_MAPE=int(os.getenv("RELIABLE_MAPE", 10))
-LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", 25))
-IQR_K=float(os.getenv("LOOKBACK_DAYS", 0.8))
+LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", 10))
+IQR_K=float(os.getenv("IQR_K", 1.5))
 DJANGO_DB_URL = os.getenv("DJANGO_DB_URL","")
 
 if ENVIRONMENT == "production":

@@ -1,5 +1,6 @@
 import pandas as pd
 import logging
+from core.config import LOOKBACK_DAYS
 import jdatetime
 from ml_engine import DataPreprocessor, PriceModelTrainer
 from sqlalchemy.orm import Session
@@ -7,7 +8,6 @@ from core.models import ProcessedListing
 from core.database import DjangoSession, SessionLocal 
 
 
-LOOKBACK_DAYS = 25
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 

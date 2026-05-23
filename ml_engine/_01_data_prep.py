@@ -5,7 +5,7 @@ import datetime as dt
 from dictionary.mappings import GLOBAL_PLATFORM_MAP, IRANIAN_BRANDS
 from core.config import IQR_K
 # --- Constants ---
-LOOKBACK_DAYS = 25
+
 CURRENT_MARKET_YEAR = jdatetime.date.today().year
 EXPECTED_KM_PER_YEAR = 7000
 CONFIRMED_WEIGHT_MULTIPLIER = 1.8
