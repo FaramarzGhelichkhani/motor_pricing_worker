@@ -92,8 +92,7 @@ class ModelIndexHistory(Base):
     __tablename__ = "estimator_modelindexhistory" 
     id = Column(Integer, primary_key=True, index=True)
     
-    real_brand = Column(String(100), index=True, nullable=False)
-    real_model = Column(String(100), index=True, nullable=False)
+    motorcycle_model_id = Column(Integer, index=True, nullable=False)
     
     date = Column(Date, default=dt.date.today, nullable=False)
     # date = Column(String(10), nullable=False)
@@ -142,8 +141,7 @@ class PriceSurface(Base):
     
     snapshot_id = Column(Integer, ForeignKey('estimator_modelindexhistory.id', ondelete="CASCADE"), nullable=False, index=True)
     
-    real_brand = Column(String(100), index=True, nullable=False)
-    real_model = Column(String(100), index=True, nullable=False)
+    motorcycle_model_id = Column(Integer, index=True, nullable=False)
 
     # ابعاد سطح (Dimensions)
     year = Column(Integer, index=True, nullable=False)

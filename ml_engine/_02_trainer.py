@@ -33,10 +33,11 @@ def _apply_dynamic_margin(mid_price: float, bucket: int):
     return low, int(mid_price), high
 
 class PriceModelTrainer:
-    def __init__(self, df: pd.DataFrame, db_session: Session, verbose=True):
+    def __init__(self, df: pd.DataFrame, db_session: Session, model_id_map:dict ,verbose=True):
         self.df = df.copy()
         self.db = db_session
         self.verbose = verbose
+        self.model_id_map = model_id_map
         # self.today = jdatetime.date.today() 
         self.today = datetime.date.today()
         self.color_coefficients = {}
@@ -193,17 +194,17 @@ class PriceModelTrainer:
         candidates.sort(key=lambda x: x["mape"])
         return candidates[0]
 
-    def _update_db_surface(self, brand, model_name, test_mape, sample_count, y_preds, algo, model_df, global_models, local_models, local_weight):
+    def _update_db_surface(self, brand, model_name, test_mape, sample_count, y_preds, algo, model_df, global_models, local_models, local_weight, motor_id):
         """ذخیره دیتای ارزیابی و تولید دیتای مصنوعی (Surface) در دیتابیس"""
         overall_mid = int(np.median(y_preds)) if len(y_preds) else 0
         
         history_obj = self.db.query(ModelIndexHistory).filter_by(
-            real_brand=brand, real_model=model_name, date=self.today
+           motorcycle_model_id=motor_id, date=self.today
         ).first()
 
         if not history_obj:
             history_obj = ModelIndexHistory(
-                real_brand=brand, real_model=model_name, date=self.today
+                motorcycle_model_id=motor_id, date=self.today
             )
             self.db.add(history_obj)
 
@@ -222,7 +223,7 @@ class PriceModelTrainer:
             return {"created": 0, "status": "unreliable"}
 
         self.db.query(PriceSurface).filter_by(
-            real_brand=brand, real_model=model_name
+            motorcycle_model_id=motor_id
         ).delete()
 
         # 3. تولید دیتای مصنوعی
@@ -301,8 +302,7 @@ class PriceModelTrainer:
             
             surface_objs.append(PriceSurface(
                 snapshot_id=history_obj.id,
-                real_brand=brand,
-                real_model=model_name,
+                motorcycle_model_id=motor_id,
                 year=int(row["production_year"]),
                 mileage_bucket=int(row["mileage_bucket"]),
                 color="مشکی", 
@@ -330,6 +330,12 @@ class PriceModelTrainer:
         for (brand, model_name), model_df in self.df.groupby(["real_brand", "real_model"]):
             if len(model_df) < MIN_MODEL_ROWS: continue
 
+            motor_id = self.model_id_map.get((brand, model_name))
+            
+            if not motor_id:
+                self.log(f"[SKIP] Model '{brand} {model_name}' not found in Django database. Skipping...")
+                continue
+
             train_df, test_df = self._split_data(model_df, test_ratio=0.2)
             if train_df is None: continue
 
@@ -351,7 +357,7 @@ class PriceModelTrainer:
             # ذخیره در دیتابیس Worker
             surf_res = self._update_db_surface(
                 brand, model_name, test_mape, len(model_df), y_test_pred, 
-                algo, model_df, global_models, final_local, lw
+                algo, model_df, global_models, final_local, lw, motor_id
             )
             
             self.log(f"[DONE] {brand} {model_name} | MAPE: {test_mape:.1f}% | Surfaces: {surf_res['created']}")

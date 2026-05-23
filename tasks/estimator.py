@@ -4,7 +4,7 @@ import jdatetime
 from ml_engine import DataPreprocessor, PriceModelTrainer
 from sqlalchemy.orm import Session
 from core.models import ProcessedListing 
-from core.database import SessionLocal 
+from core.database import DjangoSession, SessionLocal 
 
 
 LOOKBACK_DAYS = 25
@@ -21,10 +21,24 @@ def run_price_estimation_pipeline():
     logger.info("Starting Price Estimation Pipeline...")
     
     db: Session = SessionLocal()
+    django_db = DjangoSession()
     try:
         # ==========================================
         # 1. خواندن داده‌ها از دیتابیس (Load Data)
         # ==========================================
+        query_ids = """
+            SELECT m.id, b.name_en as brand_name, m.name_en as model_name 
+            FROM motor_motormodel m 
+            JOIN motor_brand b ON m.brand_id = b.id
+        """
+        django_models_df = pd.read_sql(query_ids, django_db.bind)
+        
+        # ساخت دیکشنری سریع برای جستجو: {('Honda', 'Click 150'): 12}
+        model_id_map = {
+            (row['brand_name'], row['model_name']): row['id'] 
+            for _, row in django_models_df.iterrows()
+        }
+
         cutoff_date_jalali = (jdatetime.date.today() - jdatetime.timedelta(days=LOOKBACK_DAYS)).strftime('%Y-%m-%d')
         
         logger.info(f"Loading raw listings from database (Jalali cutoff: {cutoff_date_jalali})...")
@@ -62,7 +76,7 @@ def run_price_estimation_pipeline():
         # ==========================================
         logger.info("Starting Model Training and Price Surface Generation...")
         # پاس دادن دیتافریم تمیز شده و سشن دیتابیس به ترینر
-        trainer = PriceModelTrainer(df=cleaned_df, db_session=db, verbose=True)
+        trainer = PriceModelTrainer(df=cleaned_df, db_session=django_db, model_id_map=model_id_map, verbose=True)
         
         # اجرای پایپ‌لاین ترینر (آموزش + PAVA + اینزرت در دیتابیس)
         results = trainer.execute_pipeline()
