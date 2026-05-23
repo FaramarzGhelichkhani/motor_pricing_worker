@@ -120,16 +120,16 @@ class ModelIndexHistory(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # برقراری ارتباط (Relationship) با جدول Surface
-    price_surfaces = relationship("PriceSurface", back_populates="snapshot", cascade="all, delete-orphan")
+    # price_surfaces = relationship("PriceSurface", back_populates="snapshot", cascade="all, delete-orphan")
 
-    __table_args__ = (
-        UniqueConstraint('real_brand', 'real_model', 'date', name='unique_model_date'),
-        Index('idx_modelindexhistory_date', 'date'),
-        Index('idx_modelindexhistory_bm_date', 'real_brand', 'real_model', 'date'),
-    )
+    # __table_args__ = (
+    #     UniqueConstraint('motorcycle_model_id', 'date', name='unique_model_date'),
+    #     Index('idx_modelindexhistory_date', 'date'),
+    #     Index('idx_modelindexhistory_bm_date', 'real_brand', 'real_model', 'date'),
+    # )
 
-    def __repr__(self):
-        return f"<{self.real_brand} {self.real_model} - {self.date} - MAPE: {self.mape:.1f}%>"
+    # def __repr__(self):
+    #     return f"<{self.real_brand} {self.real_model} - {self.date} - MAPE: {self.mape:.1f}%>"
 
 class PriceSurface(Base):
     """
@@ -157,14 +157,14 @@ class PriceSurface(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    snapshot = relationship("ModelIndexHistory", back_populates="price_surfaces")
+    # snapshot = relationship("ModelIndexHistory", back_populates="price_surfaces")
 
-    __table_args__ = (
-        UniqueConstraint('snapshot_id', 'real_brand', 'real_model', 'year', 'mileage_bucket', 'color', name='uniq_surface_snapshot_cell'),
-        Index('surface_lookup_idx', 'real_brand', 'real_model', 'year', 'mileage_bucket', 'color'),
-        Index('surface_snapshot_idx', 'snapshot_id', 'real_brand', 'real_model'),
-    )
+    # __table_args__ = (
+    #     UniqueConstraint('snapshot_id','motorcycle_model_id', 'year', 'mileage_bucket', 'color', name='uniq_surface_snapshot_cell'),
+    #     Index('surface_lookup_idx', 'real_brand', 'real_model', 'year', 'mileage_bucket', 'color'),
+    #     Index('surface_snapshot_idx', 'snapshot_id', 'real_brand', 'real_model'),
+    # )
 
-    def __repr__(self):
-        return f"<{self.real_brand} {self.real_model} | y={self.year} | b={self.mileage_bucket} | Mid: {self.price_mid}>"
+    # def __repr__(self):
+    #     return f"<{self.real_brand} {self.real_model} | y={self.year} | b={self.mileage_bucket} | Mid: {self.price_mid}>"
     
