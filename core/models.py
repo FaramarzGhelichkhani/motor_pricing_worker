@@ -1,9 +1,11 @@
-from sqlalchemy import Column, String, Integer, Text, BigInteger, Float, Boolean, Date, DateTime, ForeignKey, JSON, Index, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Integer, Text, BigInteger, Float, Boolean, Date, DateTime, ForeignKey, JSON, Enum
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from core.database import Base
 from datetime import datetime
+from typing import List, Optional
 import datetime as dt
+import enum
 
 class CrawlerState(Base):
     __tablename__ = "crawler_state"
@@ -167,4 +169,67 @@ class PriceSurface(Base):
 
     # def __repr__(self):
     #     return f"<{self.real_brand} {self.real_model} | y={self.year} | b={self.mileage_bucket} | Mid: {self.price_mid}>"
+
+class CrawlStatus(enum.Enum):
+    PENDING = "PENDING"          # منتظر کراول
+    SUCCESS = "SUCCESS"          # دیتا از هر دو سایت با موفقیت گرفته شد
+    PARTIAL = "PARTIAL"          # دیتای یکی از سایت‌ها (معمولاً ریتینگ) پیدا نشد
+    NOT_FOUND = "NOT_FOUND"      # در هیچکدام از سایت‌ها پیدا نشد
+    ERROR = "ERROR"              # خطای سیستمی یا شبکه رخ داده است
+
+class Motorcycle(Base):
+    __tablename__ = 'motorcycles'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
     
+    # شناسه‌های اصلی (زوج برند و مدل)
+    brand: Mapped[str] = mapped_column(String(100), index=True)
+    model_name: Mapped[str] = mapped_column(String(100), index=True)
+
+    default_url_mcs: Mapped[Optional[str]] = mapped_column(String(500))
+    default_url_bikez: Mapped[Optional[str]] = mapped_column(String(500))
+    
+    # اطلاعات کراول شده
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    specifications: Mapped[Optional[dict]] = mapped_column(JSON)
+    ratings: Mapped[Optional[dict]] = mapped_column(JSON)
+    
+    # لینک‌های منبع برای پیگیری
+    source_url_specs: Mapped[Optional[str]] = mapped_column(String(500))
+    source_url_bikez: Mapped[Optional[str]] = mapped_column(String(500))
+    
+    # متادیتا و وضعیت کراول (پاسخ به نیازمندی شما)
+    status: Mapped[CrawlStatus] = mapped_column(Enum(CrawlStatus), default=CrawlStatus.PENDING)
+    error_log: Mapped[Optional[str]] = mapped_column(Text)  # دلیل پیدا نشدن یا لاگ خطا
+    last_crawled_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+
+    # ارتباط One-to-Many با جدول عکس‌ها
+    images: Mapped[List["MotorcycleImage"]] = relationship(
+        back_populates="motorcycle", 
+        cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Motorcycle(brand='{self.brand}', model='{self.model_name}', status='{self.status.name}')>"
+
+class MotorcycleImage(Base):
+    __tablename__ = 'motorcycle_images'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    motorcycle_id: Mapped[int] = mapped_column(ForeignKey('motorcycles.id'))
+    
+    # لینک اصلی عکس در سایت مبدا
+    original_url: Mapped[str] = mapped_column(String(500))
+    
+    # مسیر ذخیره شده در هارد ماشین کراول (بعد از دانلود)
+    local_path: Mapped[Optional[str]] = mapped_column(String(500))
+    
+    # وضعیت دانلود عکس
+    is_downloaded: Mapped[bool] = mapped_column(default=False)
+    
+    # ارتباط برعکس با جدول موتور
+    motorcycle: Mapped["Motorcycle"] = relationship(back_populates="images")
+
+    def __repr__(self) -> str:
+        return f"<MotorcycleImage(motorcycle_id={self.motorcycle_id}, downloaded={self.is_downloaded})>"
