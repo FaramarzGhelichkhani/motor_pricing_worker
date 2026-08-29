@@ -85,7 +85,7 @@ class HybridMotorcycleScraper:
     def scrape_motorcyclespecs(self, brand: str, model: str, direct_url: str = None) -> dict:
         matched_model_url = direct_url
         
-        # اگر لینک دیفالت داده نشده بود، جستجو کن
+        # اگر لینک دیفالت داده نشده بود، جستجو کن (Fallback Search)
         if not matched_model_url:
             target_full_name = f"{brand} {model}".lower().replace("-", " ").strip()
             try:
@@ -208,7 +208,7 @@ class HybridMotorcycleScraper:
     def scrape_bikez_data(self, brand: str, model: str, direct_url: str = None, need_specs: bool = False) -> dict:
         best_link = direct_url
         
-        # اگر لینک دیفالت داده نشده بود، جستجو کن
+        # اگر لینک دیفالت داده نشده بود، جستجو کن (Fallback Search)
         if not best_link:
             try:
                 guess_slug = self._slugify(brand)
@@ -358,7 +358,7 @@ class HybridMotorcycleScraper:
     # =================================================================
     def fetch_motorcycle_data(self, brand: str, model: str, mcs_url: str = None, bikez_url: str = None) -> dict:
         """
-        دریافت اطلاعات موتور با امکان استفاده از لینک‌های دیفالت.
+        دریافت اطلاعات موتور با اولویت استفاده از لینک‌های دیفالت.
         اگر مشخصات در MCS یافت نشود، به عنوان Fallback از Bikez دریافت می‌شود.
         """
         print(f"\n[HYBRID FETCH] -> {brand.upper()} {model.upper()}")

@@ -197,13 +197,16 @@ class Motorcycle(Base):
     # لینک‌های منبع برای پیگیری
     source_url_specs: Mapped[Optional[str]] = mapped_column(String(500))
     source_url_bikez: Mapped[Optional[str]] = mapped_column(String(500))
+    is_url_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     
     # متادیتا و وضعیت کراول (پاسخ به نیازمندی شما)
     status: Mapped[CrawlStatus] = mapped_column(Enum(CrawlStatus), default=CrawlStatus.PENDING)
     error_log: Mapped[Optional[str]] = mapped_column(Text)  # دلیل پیدا نشدن یا لاگ خطا
     last_crawled_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
-
+    is_exported: Mapped[bool] = mapped_column(Boolean, default=False)
+    exported_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime)
+    
     # ارتباط One-to-Many با جدول عکس‌ها
     images: Mapped[List["MotorcycleImage"]] = relationship(
         back_populates="motorcycle", 

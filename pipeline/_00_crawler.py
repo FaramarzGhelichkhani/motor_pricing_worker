@@ -172,8 +172,16 @@ class DivarEnterpriseCrawler:
             except Exception as e:
                 print(f"Critical error during crawl loop: {str(e)}")
                 traceback.print_exc()
+                
+                # رفع مشکل PendingRollbackError و پاکسازی وضعیت تراکنش خراب
+                try:
+                    self.db.rollback()
+                except Exception as rollback_err:
+                    print(f"Rollback failed: {str(rollback_err)}")
+                    
                 print("Sleeping for 2 minutes before retry...")
                 time.sleep(120)
 
         print(f"Crawl mission (Cycle: {cycle_id}) completed successfully.")
         self._reset_state()
+        
