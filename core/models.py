@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, BigInteger, Float, Boolean, Date, DateTime, ForeignKey, JSON, Enum
+from sqlalchemy import Column, String, Integer, Text, BigInteger, Float, Boolean, Date, DateTime, ForeignKey, JSON, Enum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from core.database import Base
@@ -236,3 +236,45 @@ class MotorcycleImage(Base):
 
     def __repr__(self) -> str:
         return f"<MotorcycleImage(motorcycle_id={self.motorcycle_id}, downloaded={self.is_downloaded})>"
+
+class MotorcycleZeroPrice(Base):
+    __tablename__ = "motorcycle_zero_prices"
+    __table_args__ = (
+        UniqueConstraint(
+            "brand_name", 
+            "model_name", 
+            "motor_class", 
+            "jalali_date", 
+            name="uq_motorcycle_zero_prices_idx"
+        ),
+    )
+
+    # فیلدهای اصلی و درخواستی
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    brand_name: Mapped[str] = mapped_column(String(100), index=True)
+    model_name: Mapped[str] = mapped_column(String(150), index=True)
+    motor_class: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    price: Mapped[int] = mapped_column(BigInteger, index=True)
+    jalali_date: Mapped[str] = mapped_column(String(20), index=True)
+    insert_date: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    # فیلدهای پیشنهادی بر اساس ساختار کراولرها
+    source: Mapped[str] = mapped_column(String(50)) 
+    price_provider: Mapped[str | None] = mapped_column(String(50), nullable=True) 
+    is_standardized: Mapped[bool] = mapped_column(Boolean, default=True) 
+    raw_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+class DollarPrice(Base):
+    __tablename__ = "dollar_prices"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    
+    price: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # تاریخ شمسی با قید یکتایی (Unique Constraint) و ایندکس
+    persian_date: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
+    gregorian_date: Mapped[str] = mapped_column(String(20), nullable=False)
+    insert_date: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    time: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    change_value: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    change_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+                                                         

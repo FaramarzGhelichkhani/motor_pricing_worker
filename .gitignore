@@ -73,3 +73,5 @@ import_data.py
 catboost_info/
 gemini_test_*.json
 /downloaded_images/
+*.json
+test.py

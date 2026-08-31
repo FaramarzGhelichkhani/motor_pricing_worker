@@ -6,6 +6,8 @@ from core.models import RawListing
 from pipeline import DivarEnterpriseCrawler
 from tasks.process_batch import run_processing_cycle
 from tasks.estimator import run_price_estimation_pipeline
+from tasks.zero_prices_task import sync_zero_prices_task
+from tasks.fetch_Dollar_price import sync_dollar_price_task
 # from tasks.transfer import sync_to_remote_db # (بعدا اضافه می‌کنید)
 
 def job_crawl_and_process():
@@ -84,6 +86,10 @@ if __name__ == "__main__":
     schedule.every().day.at("15:00").do(job_crawl_and_process)
     schedule.every().day.at("20:30").do(job_crawl_and_process)
     schedule.every().day.at("00:00").do(job_crawl_and_process)
+
+    schedule.every().day.at("22:30").do(sync_zero_prices_task)
+    schedule.every().day.at("23:00").do(sync_dollar_price_task)
+    
     
     schedule.every().day.at("03:00").do(job_train_and_transfer)
     

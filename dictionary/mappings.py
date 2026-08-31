@@ -48,6 +48,7 @@ BRAND_NAME_MAP = {
     "کویر": "Kavir",
     "کویر موتور": "Kavir",
     "کبیر": "Kabir",
+    "کبیر موتور": "Kabir",
     "کثیر ( رهرو )": "Kasir",
     "هانی" : "Hani",
     "همتاز": "Hamtaz",
@@ -84,6 +85,7 @@ BRAND_NAME_MAP = {
     "همراه سیکلت جهان" : "Hamrah Cyclet Janhan",
     "نیرو موتور": "Niroo Motor",
     "نیروموتور": "Niroo Motor",
+     "نیرو موتور شیراز" :  "Niroo Motor",
     "سالار گستر":"Salar Gostar",
     "نیکران": "Nikran Motor",
     "جهان رو": "Jahanroo",
@@ -94,6 +96,11 @@ BRAND_NAME_MAP = {
     "اشیل":"Ashil",
     "مادو": "Mado",
     "سوکو": "Super Soco",
+
+    "پژو" : "Peugeot",
+    "تارو": "Taro",
+    "رویال الوی" : "Royalalloy",
+    "کیو جی موتور" : "Qjmotor",
 }
 
 # ==========================================
@@ -197,7 +204,7 @@ GLOBAL_PLATFORM_MAP = {
     "CB 250": {"parent_brand": "Honda", "keywords": ["cb 250", "cb250"], "exclusions": ["cbr", "x"], "copy_brands": []},
     "CB 200X": {"parent_brand": "Honda", "keywords": ["cb200x", "cb 200x"], "exclusions": [], "copy_brands": []},
     "CB 190": {"parent_brand": "Honda", "keywords": ["cb190", "cb 190", "cb190r", "سی بی 190"], "exclusions": [], "copy_brands": []},
-    "CB 150 R": {"parent_brand": "Honda", "keywords": ["cb150r", "cb 150 r"], "exclusions": ["cbr"], "copy_brands": []},
+    "CB 150 R": {"parent_brand": "Honda", "keywords": ["cb150r", "cb 150 r", "cb150"], "exclusions": ["cbr"], "copy_brands": []},
     "CBR 150": {"parent_brand": "Honda", "keywords": ["cbr 150", "cbr150"], "exclusions": ["250", "1000"], "copy_brands": []},
     "CBR 250": {"parent_brand": "Honda", "keywords": ["cbr 250", "cbr250", "cbr250rr"], "exclusions": ["150", "1000"], "copy_brands": []},
     "CBR 300": {"parent_brand": "Honda", "keywords": ["cbr 300", "cbr300"], "exclusions": [], "copy_brands": []},
@@ -209,7 +216,7 @@ GLOBAL_PLATFORM_MAP = {
     "CRF Rally 250": {"parent_brand": "Honda", "keywords": ["crf rally 250", "crf250 rally", "crf رالی 250", "رالی 250"], "exclusions": ["450"], "copy_brands": []},
     
     # SH / Forza / Other Honda
-    "SH 150": {"parent_brand": "Honda", "keywords": ["sh 150", "اس اچ 150"], "exclusions": ["160", "180"], "copy_brands": []},
+    "SH 150": {"parent_brand": "Honda", "keywords": ["sh 150", "اس اچ 150", "sh150"], "exclusions": ["160", "180"], "copy_brands": []},
     "SH 160": {"parent_brand": "Honda", "keywords": ["sh 160", "اس اچ 160"], "exclusions": ["150", "180"], "copy_brands": []},
     "SH 180": {"parent_brand": "Honda", "keywords": ["sh 180", "اس اچ 180"], "exclusions": ["150", "160"], "copy_brands": ["Xigma"]},
     "Forza 250": {"parent_brand": "Honda", "keywords": ["forza 250", "فورزا 250"], "exclusions": ["350"], "copy_brands": []},
@@ -222,7 +229,7 @@ GLOBAL_PLATFORM_MAP = {
     "Dio 110": {"parent_brand": "Honda", "keywords": ["dio 110", "دیو 110"], "exclusions": ["50", "125"], "copy_brands": []},
     "XR 250": {"parent_brand": "Honda", "keywords": ["xr 250", "ایکس آر 250"], "exclusions": [], "copy_brands": []},
     "XL 125": {"parent_brand": "Honda", "keywords": ["xl 125", "xl125", "ایکس ال 125"], "exclusions": ["250"], "copy_brands": []},
-
+    "HONEST 185": {"parent_brand": "Honda", "keywords": ["honest185", "Honest 185", "هانست 185"], "exclusions": [], "copy_brands": []},
     # جا مانده‌های HONDA
     "CG 70": {"parent_brand": "Honda", "keywords": ["cg 70", "هوندا 70", "honda 70"], "exclusions": ["125", "150", "200"], "copy_brands": []},
     "Hornet 600": {"parent_brand": "Honda", "keywords": ["هورنت 600", "hornet 600"], "exclusions": ["185", "200"], "copy_brands": []},
@@ -278,7 +285,7 @@ GLOBAL_PLATFORM_MAP = {
     "R3": {"parent_brand": "Yamaha", "keywords": ["r 3", "r3", "آر 3", "یاماها r3"], "exclusions": [], "copy_brands": []},
     "R6": {"parent_brand": "Yamaha", "keywords": ["r 6", "r6", "آر 6", "یاماها r6"], "exclusions": [], "copy_brands": []},
     "R1": {"parent_brand": "Yamaha", "keywords": ["r 1", "r1", "آر 1", "یاماها r1"], "exclusions": [], "copy_brands": []},
-    "MT 15": {"parent_brand": "Yamaha", "keywords": ["mt15", "mt 15", "ام تی 15"], "exclusions": ["25", "09"], "copy_brands": []},
+    "MT 15": {"parent_brand": "Yamaha", "keywords": ["mt15", "mt 15", "ام تی 15", "MT 155",  "mt155"], "exclusions": ["25", "09"], "copy_brands": []},
     "MT 25": {"parent_brand": "Yamaha", "keywords": ["mt25", "mt 25", "ام تی 25"], "exclusions": ["15", "09"], "copy_brands": []},
     "MT 09": {"parent_brand": "Yamaha", "keywords": ["mt09", "mt 9", "ام تی 9"], "exclusions": ["15", "25"], "copy_brands": []},
     "XSR 155": {"parent_brand": "Yamaha", "keywords": ["xsr155", "xsr 155", "ایکس اس ار 155"], "exclusions": [], "copy_brands": []},
@@ -310,7 +317,15 @@ GLOBAL_PLATFORM_MAP = {
     "FZ1": {"parent_brand": "Yamaha", "keywords": ["fz1"], "exclusions": [], "copy_brands": []},
     "VMAX 1700": {"parent_brand": "Yamaha", "keywords": ["vmax", "vmax 1700"], "exclusions": [], "copy_brands": []},
     "XT 600": {"parent_brand": "Yamaha", "keywords": ["xt600", "xt 600"], "exclusions": [], "copy_brands": []},
-
+    "FZS 150": {"parent_brand": "Yamaha", "keywords": ["fzs150", "FZS 150", "اف زد اس 150"], "exclusions": [], "copy_brands": []},
+    # niromotor yamaha
+    "M 3 125": {"parent_brand": "Yamaha", "keywords": ["yamaha m3 125", "m 3 125"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "LEXI 150": {"parent_brand": "Yamaha", "keywords": ["yamaha lexi 150", "lexi 150"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "MT 249": {"parent_brand": "Yamaha", "keywords": ["yamaha mt249", "mt 249"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "VIXION 155": {"parent_brand": "Yamaha", "keywords": ["yamaha visiov 155", "vixion 155"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "GR 125": {"parent_brand": "Yamaha", "keywords": ["gr 125", "yamaha gr 125"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "AEROX ALFHA TURBO ABS": {"parent_brand": "Yamaha", "keywords": ["yamaha aerox alfha turbo abs", "aerox alfha turbo abs"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "RAPTOR 90": {"parent_brand": "Yamaha", "keywords": ["raptor 90", "yamaha raptor 90"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
     # ================= BAJAJ PLATFORMS =================
     "Pulsar 150": {
         "parent_brand": "Bajaj",
@@ -378,6 +393,42 @@ GLOBAL_PLATFORM_MAP = {
 
 
     # ================= BENELLI PLATFORMS =================
+      "TNT 135": {
+        "parent_brand": "Benelli",
+        "keywords": [
+            "TNT 135",
+            "tnt135"
+        ],
+        "exclusions": [],
+        "copy_brands": []
+    },
+    "TNT 15 EFI": {
+        "parent_brand": "Benelli",
+        "keywords": [
+            "tnt15efi",
+            "TNT 15 EFI"
+        ],
+        "exclusions": [],
+        "copy_brands": []
+    },
+    "TNT 249S": {
+        "parent_brand": "Benelli",
+        "keywords": [
+            "TNT 249S",
+            "tnt249s"
+        ],
+        "exclusions": [],
+        "copy_brands": []
+    },
+    "TNT 25N": {
+        "parent_brand": "Benelli",
+        "keywords": [
+            "tnt25n",
+            "TNT 25N"
+        ],
+        "exclusions": [],
+        "copy_brands": []
+    },
     "BN 150": {"parent_brand": "Benelli", "keywords": ["bn 150", "bn150", "بنلی 150", "tnt 150", "tnt150", "tnt15"], "exclusions": ["180", "250", "300"], "copy_brands": []},
     "BN 180": {"parent_brand": "Benelli", "keywords": ["بنلی 180", "tnt 180", "tnt 180s", "180s"], "exclusions": ["150", "250", "300"], "copy_brands": []},
     "BN 250": {"parent_brand": "Benelli", "keywords": ["بنلی 250", "tnt 249", "tnt25", "tnt 250", "tnt250n"], "exclusions": ["150", "180", "300"], "copy_brands": []},
@@ -394,7 +445,7 @@ GLOBAL_PLATFORM_MAP = {
     "VZ 125": {"parent_brand": "Benelli", "keywords": ["vz 125", "بنلی vz", "وی زد 125", "vizy"], "exclusions": [], "copy_brands": []},
 
     # ================= KTM PLATFORMS =================
-    "Duke 200": {"parent_brand": "KTM", "keywords": ["duke 200", "دوک  200"], "exclusions": ["250", "400"], "copy_brands": []},
+    "Duke 200": {"parent_brand": "KTM", "keywords": ["duke 200", "دوک  200", "دوک 200",  "duke200"], "exclusions": ["250", "400"], "copy_brands": []},
     "Duke 250": {"parent_brand": "KTM", "keywords": ["duke 250", "دوک 250"], "exclusions": ["200", "400"], "copy_brands": []},
     "Duke 400": {"parent_brand": "KTM", "keywords": ["duke 400", "دوک 400"], "exclusions": ["200", "250"], "copy_brands": []},
     "RC 200": {"parent_brand": "KTM", "keywords": ["rc 200", "rc200"], "exclusions": ["250"], "copy_brands": []},
@@ -433,6 +484,15 @@ GLOBAL_PLATFORM_MAP = {
         "copy_brands": ["Niroo Motor"]
     },
     "Galaxy NH 249": {"parent_brand": "SYM", "keywords": ["nh 249", "گلکسی nh 249", "nh249"], "exclusions": ["180", "na","250"], "copy_brands": ["Niroo Motor"]},
+    "GALAXY NH 250": {
+        "parent_brand": "SYM",
+        "keywords": [
+            "گلکسی NH 250",
+            "galaxynh250"
+        ],
+        "exclusions": [],
+        "copy_brands": []
+    },
     "Galaxy J 200": {
         "parent_brand": "SYM",
         "keywords": [
@@ -485,6 +545,15 @@ GLOBAL_PLATFORM_MAP = {
     "Galaxy TN 110": {"parent_brand": "SYM", "keywords": ["tn110", "tn 110"], "exclusions": [], "copy_brands": []},
     "Galaxy JR 300": {"parent_brand": "SYM", "keywords": ["jr300", "jr 300"], "exclusions": [], "copy_brands": []},
     "Galaxy JX 249": {"parent_brand": "SYM", "keywords": ["jx249", "jx 249"], "exclusions": [], "copy_brands": []},
+    "GALAXY JX 250": {
+        "parent_brand": "SYM",
+        "keywords": [
+            "گلکسی JX 250",
+            "galaxyjx250"
+        ],
+        "exclusions": [],
+        "copy_brands": []
+    },
     "Galaxy k3 130": {"parent_brand": "SYM", "keywords": ["k3 130", "k3"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
     "Fiddle 3": {"parent_brand": "SYM", "keywords": ["fiddle 3", "فیدل 3", "fiddle3"], "exclusions": ["4"], "copy_brands": []},
     "Fiddle 4": {"parent_brand": "SYM", "keywords": ["fiddle 4", "فیدل 4", "fiddle4"], "exclusions": ["3"], "copy_brands": []},
@@ -507,7 +576,7 @@ GLOBAL_PLATFORM_MAP = {
     },
     "Sprint 125": {"parent_brand": "Vespa", "keywords": ["sprint 125", "اسپرینت 125"], "exclusions": ["150"], "copy_brands": []},
     "Sprint 150": {"parent_brand": "Vespa", "keywords": ["sprint 150", "اسپرینت 150", "sprint"], "exclusions": ["125"], "copy_brands": []},
-    "VXL 150": {"parent_brand": "Vespa", "keywords": ["vxl 150", "vxl150", "وسپا 150", "وسپا vxl", "وسپا وی ایکس ال"], "exclusions": [], "copy_brands": []},
+    "VXL 150": {"parent_brand": "Vespa", "keywords": ["vxl 150", "vxl150", "وسپا 150", "وسپا vxl", "وسپا وی ایکس ال","150 وی ایکس ال"], "exclusions": [], "copy_brands": []},
     "Vespa 200": {"parent_brand": "Vespa", "keywords": ["vespa 200", "وسپا 200", "px 200"], "exclusions": ["150", "250", "300"], "copy_brands": []},
     "LX 150": {"parent_brand": "Vespa", "keywords": ["ال ایکس 150", "vespa lx 150", "lx 150"], "exclusions": [], "copy_brands": []},
     "GTS 250": {"parent_brand": "Vespa", "keywords": ["gts 250", "جی تی اس 250", "gts 250 kls", "gts 250 super"], "exclusions": ["300", "280"], "copy_brands": []},
@@ -517,7 +586,7 @@ GLOBAL_PLATFORM_MAP = {
     "Vespa 946": {"parent_brand": "Vespa", "keywords": ["946", "vespa 946", "رد 946"], "exclusions": [], "copy_brands": []},
     "Piaggio Liberty 150": {"parent_brand": "Piaggio", "keywords": ["liberty 150", "پیاجیو لیبرتی", "وسپا پیاجیو 150"], "exclusions": [], "copy_brands": []},
 
-    # ================= CFMOTO & KEEWAY & OTHERS =================
+    # ================= CFMOTO & KEEWAY & yosun & kymco =================
     "150 NK": {"parent_brand": "CFMOTO", "keywords": ["nk 150", "cf naked 150", "150 nk", "cfmoto nk 150"], "exclusions": ["250"], "copy_brands": []},
     "250 NK": {"parent_brand": "CFMOTO", "keywords": ["nk 250", "250 nk", "cf 250 nk"], "exclusions": ["150"], "copy_brands": []},
     "SRK 180": {"parent_brand": "CFMOTO", "keywords": ["srk180", "srk 180"], "exclusions": ["250"], "copy_brands": []},
@@ -527,14 +596,27 @@ GLOBAL_PLATFORM_MAP = {
     "QJ NX 150": {"parent_brand": "CFMOTO", "keywords": ["nx150", "qj nx150", "کیوجی nx150"], "exclusions": [], "copy_brands": []},
     "QJ LTR 150": {"parent_brand": "CFMOTO", "keywords": ["ltr 150", "qj ltr 150", "ال تی آر 150"], "exclusions": [], "copy_brands": ["Kavir"]},
     "QJ MTX 175": {"parent_brand": "CFMOTO", "keywords": ["mtx 175", "qj mtx 175"], "exclusions": [], "copy_brands": []},
-    
+    "CFORCE 1000": { "parent_brand": "CFMOTO", "keywords": [ "CFORCE 1000", "cforce1000" ], "exclusions": [], "copy_brands": [] },
+    "CFORCE 110": { "parent_brand": "CFMOTO", "keywords": [ "cforce110", "Cforce 110" ], "exclusions": [], "copy_brands": [] },
+    "CFORCE EV 110": { "parent_brand": "CFMOTO", "keywords": [ "Cforce EV 110", "cforceev110" ], "exclusions": [], "copy_brands": [] },
+    "FLATTRACK 250": { "parent_brand": "Caballero", "keywords": [ "flattrack250", "فلت ترک 250" ], "exclusions": [], "copy_brands": [] },
+
     "K249R": {"parent_brand": "Keeway", "keywords": ["k249r"], "exclusions": ["k249n"], "copy_brands": []},
     "K249N": {"parent_brand": "Keeway", "keywords": ["k249n", "کی وی 249n"], "exclusions": ["k249r"], "copy_brands": []},
     "CT 150": {"parent_brand": "Keeway", "keywords": ["ct 150", "سی تی 150"], "exclusions": [], "copy_brands": []},
     "Viste 250": {"parent_brand": "Keeway", "keywords": ["viste 250", "کی وی ویسته 250", "ویسته 250"], "exclusions": ["k249r"], "copy_brands": []},
+    "CITY 200": {"parent_brand": "Keeway", "keywords": ["CITY 200", "city200"], "exclusions": [], "copy_brands": []},
+    "K249E": {"parent_brand": "Keeway", "keywords": ["K249E", "k249e"], "exclusions": [], "copy_brands": []},
+    "K249NR": {"parent_brand": "Keeway", "keywords": ["k249nr", "K249NR"], "exclusions": [], "copy_brands": []},
+    "XDV180": {"parent_brand": "Keeway", "keywords": ["xdv180", "XDV180"], "exclusions": [], "copy_brands": []},
+    "VIESTE 175": {"parent_brand": "Keeway", "keywords": ["vieste175", "ویسته 175"], "exclusions": [], "copy_brands": []},
 
-    "Aquila 250": {"parent_brand": "Hyosung", "keywords": ["هیوسانگ اکوییلا 250", "اکوییلا 250"], "exclusions": [], "copy_brands": []},
+    "Aquila 250": {"parent_brand": "Hyosung", "keywords": ["هیوسانگ اکوییلا 250", "اکوییلا 250", "اکوئیلا 250"], "exclusions": [], "copy_brands": []},
 
+    "AGILITY 160S": {"parent_brand": "Kymco", "keywords": ["agility160s", "Agility 160S", "اجیلیتی"], "exclusions": [], "copy_brands": []},
+    "MXU 300I": {"parent_brand": "Kymco", "keywords": ["mxu300i", "MXU 300i"], "exclusions": [], "copy_brands": []},
+    "TERSELY 160S": {"parent_brand": "Kymco", "keywords": ["Tersely 160S", "tersely160s"], "exclusions": [], "copy_brands": []},
+    # ================= Zontes =================
     "250 R": {"parent_brand": "Zontes", "keywords": ["zontes 250 r", "زونتس 250r", "r250"], "exclusions": ["n2", "s", "qj"], "copy_brands": []},
     "250 S": {"parent_brand": "Zontes", "keywords": ["zontes 250 s", "زونتس 250s", "s250"], "exclusions": ["n2", "r", "qj"], "copy_brands": []},
     "G1 200": {"parent_brand": "Zontes", "keywords": ["g1 200", "zontes g1"], "exclusions": [], "copy_brands": []},
@@ -544,6 +626,18 @@ GLOBAL_PLATFORM_MAP = {
         "exclusions": ["250", "۲۵۰", "249", "v", "r", "s", "گالکسی", "adv", "boxer"],
         "copy_brands": ["Kavir"]
     },
+    "V249": { "parent_brand": "Zontes", "keywords": [ "V249", "v249" ], "exclusions": [], "copy_brands": [] },
+    "Z2 150 G1": { "parent_brand": "Zontes", "keywords": [ "Z2 150 G1", "z2150g1" ], "exclusions": [], "copy_brands": [] },
+    "Z2 150 U": { "parent_brand": "Zontes", "keywords": [ "z2150u", "Z2 150 U" ], "exclusions": [], "copy_brands": [] },
+    "Z2 150 U1": { "parent_brand": "Zontes", "keywords": [ "z2150u1", "Z2 150 U1" ], "exclusions": [], "copy_brands": [] },
+    "Z2 150 Z2": { "parent_brand": "Zontes", "keywords": [ "Z2 150 Z2", "z2150z2" ], "exclusions": [], "copy_brands": [] },
+    "Z2 200 G1": { "parent_brand": "Zontes", "keywords": [ "z2200g1", "Z2 200 G1" ], "exclusions": [], "copy_brands": [] },
+    "Z2 200 U": { "parent_brand": "Zontes", "keywords": [ "Z2 200 U", "z2200u" ], "exclusions": [], "copy_brands": [] },
+    "Z2 200 U1": { "parent_brand": "Zontes", "keywords": [ "z2200u1", "Z2 200 U1" ], "exclusions": [], "copy_brands": [] },
+    "Z2 200 Z2": { "parent_brand": "Zontes", "keywords": [ "z2200z2", "Z2 200 Z2" ], "exclusions": [], "copy_brands": [] },
+    "Z4 250 R": { "parent_brand": "Zontes", "keywords": [ "z4250r", "Z4 250 R" ], "exclusions": [], "copy_brands": [] },
+    "Z4 250 T": { "parent_brand": "Zontes", "keywords": [ "Z4 250 T", "z4250t" ], "exclusions": [], "copy_brands": [] },
+    "Z4 250 X": { "parent_brand": "Zontes", "keywords": [ "z4250x", "Z4 250 X" ], "exclusions": [], "copy_brands": [] },
     # ================= LIFAN PLATFORMS =================
     "Lifan 125": {"parent_brand": "Lifan", "keywords": ["لیفان 125", "lifan 125"], "exclusions": ["150", "200"], "copy_brands": []},
     "Lifan 150": {"parent_brand": "Lifan", "keywords": ["لیفان 150", "lifan 150"], "exclusions": ["125", "200", "kpv"], "copy_brands": []},
@@ -567,29 +661,187 @@ GLOBAL_PLATFORM_MAP = {
     "RKV 200": {"parent_brand": "Kavir", "keywords": ["rkv 200"], "exclusions": [], "copy_brands": []},
     "Trail T2/T4": {"parent_brand": "Kavir", "keywords": ["تریل t2", "تریل t4", "trail 200", "trail 250"], "exclusions": [], "copy_brands": []},
 
+    "1958": {"parent_brand": "Kavir", "keywords": ["1958"], "exclusions": [], "copy_brands": []},
+    "AGV 150X": {"parent_brand": "Kavir", "keywords": ["agv150x", "AGV 150X"], "exclusions": [], "copy_brands": []},
+    "AGV 180X": {"parent_brand": "Kavir", "keywords": ["agv180x", "AGV 180X"], "exclusions": [], "copy_brands": []},
+    "C2 249": {"parent_brand": "Kavir", "keywords": ["C2 249", "c2249"], "exclusions": [], "copy_brands": []},
+    "C3 249": {"parent_brand": "Kavir", "keywords": ["c3249", "C3 249"], "exclusions": [], "copy_brands": []},
+    "ES1 1800": {"parent_brand": "Kavir", "keywords": ["ES1 1800", "es11800"], "exclusions": [], "copy_brands": []},
+    "ES2 1500": {"parent_brand": "Kavir", "keywords": ["ES2 1500", "es21500"], "exclusions": [], "copy_brands": []},
+    "ES5 1500": {"parent_brand": "Kavir", "keywords": ["es51500", "ES5 1500"], "exclusions": [], "copy_brands": []},
+    "ES5 2000": {"parent_brand": "Kavir", "keywords": ["es52000", "ES5 2000"], "exclusions": [], "copy_brands": []},
+    "ES6 1500": {"parent_brand": "Kavir", "keywords": ["es61500", "ES6 1500"], "exclusions": [], "copy_brands": []},
+    "ES8 1500": {"parent_brand": "Kavir", "keywords": ["ES8 1500", "es81500"], "exclusions": [], "copy_brands": []},
+    "ESM 2000": {"parent_brand": "Kavir", "keywords": ["ESM 2000", "esm2000"], "exclusions": [], "copy_brands": []},
+    "EST2 1500": {"parent_brand": "Kavir", "keywords": ["est21500", "EST2 1500"], "exclusions": [], "copy_brands": []},
+    "EST4 1500": {"parent_brand": "Kavir", "keywords": ["est41500", "EST4 1500"], "exclusions": [], "copy_brands": []},
+    "ET1": {"parent_brand": "Kavir", "keywords": ["ET1", "et1"], "exclusions": [], "copy_brands": []},
+    "ITANGO": {"parent_brand": "Kavir", "keywords": ["iTango", "itango"], "exclusions": [], "copy_brands": []},
+    "ITANK": {"parent_brand": "Kavir", "keywords": ["itank", "iTank"], "exclusions": [], "copy_brands": []},
+    "M1-70": {"parent_brand": "Kavir", "keywords": ["70m1", "M1-70"], "exclusions": [], "copy_brands": []},
+    "MAD": {"parent_brand": "Kavir", "keywords": ["mad", "MAD"], "exclusions": [], "copy_brands": []},
+    "MAD TRUCK": {"parent_brand": "Kavir", "keywords": ["madtruck", "MAD Truck"], "exclusions": [], "copy_brands": []},
+    "MS1 77": {"parent_brand": "Kavir", "keywords": ["ms177", "MS1 77"], "exclusions": [], "copy_brands": []},
+    "MT1 50": {"parent_brand": "Kavir", "keywords": ["MT1 50", "mt150"], "exclusions": [], "copy_brands": []},
+    "MT2-70": {"parent_brand": "Kavir", "keywords": ["70mt2", "MT2-70"], "exclusions": [], "copy_brands": []},
+    "S1 125": {"parent_brand": "Kavir", "keywords": ["s1", "S1 125"], "exclusions": [], "copy_brands": []},
+    "S6 170": {"parent_brand": "Kavir", "keywords": ["S6 170", "s6170"], "exclusions": [], "copy_brands": []},
+    "S7 150": {"parent_brand": "Kavir", "keywords": ["s7150", "S7 150"], "exclusions": [], "copy_brands": []},
+    "ST3-220": {"parent_brand": "Kavir", "keywords": ["st3", "ST3-220"], "exclusions": [], "copy_brands": []},
+    "T2 230": {"parent_brand": "Kavir", "keywords": ["t2230", "T2 230"], "exclusions": [], "copy_brands": []},
+    "T2 248 N": {"parent_brand": "Kavir", "keywords": ["T2 248 N", "t2248n"], "exclusions": [], "copy_brands": []},
+    "T4 200": {"parent_brand": "Kavir", "keywords": ["T4 200", "t4200"], "exclusions": [], "copy_brands": []},
+    "T6 249": {"parent_brand": "Kavir", "keywords": ["T6 249", "t6249"], "exclusions": [], "copy_brands": []},
+    "ADVENTURE 249": {"parent_brand": "Kavir", "keywords": ["ادونچر 249", "adventure249"], "exclusions": [], "copy_brands": []},
+
+
+    "EHSAN 125 RD": {"parent_brand": "Niroo Motor", "keywords": ["EHSAN 125 RD",  "ehsan rd125","ehsan125rd","احسان 125rd", "احسان 125 آر دی"], "exclusions": [], "copy_brands": []},
+    "EHSAN 200 EH": {"parent_brand": "Niroo Motor", "keywords": ["EHSAN 200 EH",  "ehsan eh200","ehsan200eh", "احسان 200eh", "احسان 200 ای اچ",  "ehsan200"], "exclusions": [], "copy_brands": []},
+    "PARVAZ 125": {"parent_brand": "Niroo Motor", "keywords": ["PARVAZ 125", "parvaz125", "پرواز 125"], "exclusions": [], "copy_brands": []},
+
+    # Kabir
     "KLD 180": {"parent_brand": "Kabir", "keywords": ["kld 180"], "exclusions": ["200"], "copy_brands": []},
     "KLD 200": {
             "parent_brand": "Kabir", # KLD is originally Kabir's Boxer copy
             "keywords": ["kld 200", "kld200", "kld", "کی ال دی 200", "کی ال دی", "کی ال دی ۲۰۰"],
             "exclusions": ["180", "۱۸۰", "bx", "bm", "hlx", "150", "کویر"],
             "copy_brands": []
+
     },
+    "125 H": {"parent_brand": "Kabir", "keywords": ["125h", "125H"], "exclusions": [], "copy_brands": []},
+    "150 P": {"parent_brand": "Kabir", "keywords": ["150p", "150P"], "exclusions": [], "copy_brands": []},
+    "A1-249": {"parent_brand": "Kabir", "keywords": ["A1-249", "a1249"], "exclusions": [], "copy_brands": []},
+    "CDI 200": {"parent_brand": "Kabir", "keywords": ["CDI200", "cdi200"], "exclusions": [], "copy_brands": []},
+    "CTV 150": {"parent_brand": "Kabir", "keywords": ["CTV 150", "ctv150"], "exclusions": [], "copy_brands": []},
+    "CTV 180": {"parent_brand": "Kabir", "keywords": ["CTV 180", "ctv180"], "exclusions": [], "copy_brands": []},
+    "CTV 200": {"parent_brand": "Kabir", "keywords": ["CTV 200", "ctv200"], "exclusions": [], "copy_brands": []},
+    "NVX 170": {"parent_brand": "Kabir", "keywords": ["nvx170", "NVX 170"], "exclusions": [], "copy_brands": []},
+    "VXL 170": {"parent_brand": "Kabir", "keywords": ["VXL 170", "vxl170"], "exclusions": [], "copy_brands": []},
+    "SATLIS 170 S": {"parent_brand": "Kabir", "keywords": ["satlis170s", "ساتلیس 170S"], "exclusions": [], "copy_brands": []},
+    "CLICK VARIO 170": {"parent_brand": "Kabir", "keywords": ["clickvario170", "کلیک آپ 170"], "exclusions": [], "copy_brands": []},
+    "CLICK UP 180": {"parent_brand": "Kabir", "keywords": ["کلیک آپ 180", "clickup180"], "exclusions": [], "copy_brands": []},
+
+
     "Savin 125": {"parent_brand": "Savin", "keywords": ["ساوین 125", "savin 125"], "exclusions": ["150"], "copy_brands": []},
     "Savin 150": {"parent_brand": "Savin", "keywords": ["ساوین 150", "savin 150"], "exclusions": ["125"], "copy_brands": []},
 
     "Hamtaz 125": {"parent_brand": "Hamtaz", "keywords": ["همتاز 125"], "exclusions": ["150", "200"], "copy_brands": []},
     "Hamtaz 150": {"parent_brand": "Hamtaz", "keywords": ["همتاز 150", "طرح وسپا همتاز 150"], "exclusions": ["125", "200"], "copy_brands": []},
     "XTM 200": {"parent_brand": "Hamtaz", "keywords": ["xtm 200", "همتاز xtm", "طرح باکسر xtm"], "exclusions": [], "copy_brands": []},
+    #Blenta
     "Blenta RT2 250": {"parent_brand": "Hamtaz", "keywords": ["بلنتا rt2 250", "blenta rt2"], "exclusions": [], "copy_brands": []},
     "Blenta VLX 170": {"parent_brand": "Hamtaz", "keywords": ["بلنتا vlx 170", "blenta vlx"], "exclusions": [], "copy_brands": []},
     "Blenta Z1 249": {"parent_brand": "Hamtaz", "keywords": ["بلنتا z1 249", "blenta z1"], "exclusions": [], "copy_brands": []},
+    "BLENTA CR 200": { "parent_brand": "Jahan Hamta", "keywords": [ "blentacr200", "بلنتا CR 200" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA R225": { "parent_brand": "Jahan Hamta", "keywords": [ "blentar225", "بلنتا R225" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA RT 2250": { "parent_brand": "Jahan Hamta", "keywords": [ "blentart2250", "بلنتا RT2-250" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA SP 110": { "parent_brand": "Jahan Hamta", "keywords": [ "بلنتا SP110", "blentasp110" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA VLX 150": { "parent_brand": "Jahan Hamta", "keywords": [ "بلنتا VLX150", "blentavlx150" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA VLX 155": { "parent_brand": "Jahan Hamta", "keywords": [ "blentavlx155", "بلنتا VLX155" ], "exclusions": [], "copy_brands": [] },
+    "BLENTACLICK VLX 170": { "parent_brand": "Jahan Hamta", "keywords": [ "blentaclickvlx170", "بلنتا VLX170" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA Z249": { "parent_brand": "Jahan Hamta", "keywords": [ "بلنتا Z 249", "blentaz249" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA Z1": { "parent_brand": "Jahan Hamta", "keywords": [ "blentaz1", "بلنتا Z1" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA CLICK V 150 I": { "parent_brand": "Jahan Hamta", "keywords": [ "بلنتا کلیک V150", "blentaclickv150i" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA CLICK V 160": { "parent_brand": "Jahan Hamta", "keywords": [ "blentaclickv160", "بلنتا کلیک V160" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA CLICK V 170": { "parent_brand": "Jahan Hamta", "keywords": [ "blentaclickv170", "بلنتا کلیک V170" ], "exclusions": [], "copy_brands": [] },
+    "BLENTA CLICK VR 150": { "parent_brand": "Jahan Hamta", "keywords": [ "بلنتا کلیک VR150", "blentaclickvr150" ], "exclusions": [], "copy_brands": [] },
+
+    "PANIK 135": { "parent_brand": "Jahan Hamta", "keywords": [ "پانیک 135", "panik135" ], "exclusions": [], "copy_brands": [] },
+    "SHERCO 250 SE": { "parent_brand": "Jahan Hamta", "keywords": [ "شرکو 250SE", "sherco250se" ], "exclusions": [], "copy_brands": [] },
+    "SHERCO 300 SE": { "parent_brand": "Jahan Hamta", "keywords": [ "شرکو 300SE", "sherco300se" ], "exclusions": [], "copy_brands": [] },
+    "FALAT 200": { "parent_brand": "Jahan Hamta", "keywords": [ "فلات CRF200", "falat200" ], "exclusions": [], "copy_brands": [] },
+    "FALAT DT 200": { "parent_brand": "Jahan Hamta", "keywords": [ "فلات DT200", "falatdt200" ], "exclusions": [], "copy_brands": [] },
+    "FALAT NC 250": { "parent_brand": "Jahan Hamta", "keywords": [ "فلات NC250", "falatnc250" ], "exclusions": [], "copy_brands": [] },
+    "FALAT XR 250": { "parent_brand": "Jahan Hamta", "keywords": [ "فلات XR250", "falatxr250" ], "exclusions": [], "copy_brands": [] },
+    "FALAT 250": { "parent_brand": "Jahan Hamta", "keywords": [ "فلات تریل 250", "falat250" ], "exclusions": [], "copy_brands": [] },
+    "VINTO GP 250": { "parent_brand": "Jahan Hamta", "keywords": [ "وینتو GP250", "vintogp250" ], "exclusions": [], "copy_brands": [] },
+    "HANWAY NK 250": { "parent_brand": "Jahan Hamta", "keywords": [ "hanwaynk250", "هانوی NK250" ], "exclusions": [], "copy_brands": [] },
+    "HAMTAZ 200": { "parent_brand": "Jahan Hamta", "keywords": [ "همتاز 200", "hamtaz200" ], "exclusions": [], "copy_brands": [] },
+    "HAMTAZ ELECTRIC 2000 W": { "parent_brand": "Jahan Hamta", "keywords": [ "همتاز EH2000", "hamtazelectric2000w" ], "exclusions": [], "copy_brands": [] },
+    "HAMTAZ ELECTRIC 1200 W": { "parent_brand": "Jahan Hamta", "keywords": [ "hamtazelectric1200w", "همتاز EM1200" ], "exclusions": [], "copy_brands": [] },
+    "HAMTAZ 800 W": { "parent_brand": "Jahan Hamta", "keywords": [ "همتاز EM800", "hamtaz800w" ], "exclusions": [], "copy_brands": [] },
+    "HAMTAZ RS 150": { "parent_brand": "Jahan Hamta", "keywords": [ "hamtazrs150", "همتاز RS150" ], "exclusions": [], "copy_brands": [] },
+    "HAMTAZ SH 200": { "parent_brand": "Jahan Hamta", "keywords": [ "hamtazsh200", "همتاز SH200" ], "exclusions": [], "copy_brands": [] },
+    "HAMRO NV 150": { "parent_brand": "Jahan Hamta", "keywords": [ "همرو NV150", "hamronv150" ], "exclusions": [], "copy_brands": [] },
 
     "Daichi 125": {"parent_brand": "Daichi", "keywords": ["دایچی 125", "daichi 125"], "exclusions": ["150", "200"], "copy_brands": []},
     "Daichi 150": {"parent_brand": "Daichi", "keywords": ["دایچی 150", "daichi 150"], "exclusions": ["125", "200", "jp"], "copy_brands": []},
-    "Daichi 200": {"parent_brand": "Daichi", "keywords": ["دایچی 200", "daichi 200"], "exclusions": ["125", "150"], "copy_brands": []},
-
-    "Megelli 200": {"parent_brand": "Megelli", "keywords": ["مگلی 200", "megelli 200"], "exclusions": [], "copy_brands": []},
+    "Daichi 200": {"parent_brand": "Daichi", "keywords": ["دایچی 200", "bx200", "daichi 200"], "exclusions": ["125", "150"], "copy_brands": []},
+    "CR 150": {"parent_brand": "Daichi", "keywords": ["CR 150","cr150" ], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "JP 150": {"parent_brand": "Daichi", "keywords": ["daichi jp150", "jp 150"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "VP 125": {"parent_brand": "Daichi", "keywords": ["vp 125", "daichi vp125"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "DAICHI E 8 S": {"parent_brand": "Daichi", "keywords": ["daichi e8s", "daichi e 8 s"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    "HX 180": {"parent_brand": "Daichi", "keywords": ["daichi hx180", "hx 180"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
+    
+    "Megelli 200": {"parent_brand": "Megelli", "keywords": ["مگلی 200", "megelli 200", "200r"], "exclusions": [], "copy_brands": []},
     "Delta 170": {"parent_brand": "Shahin Motor", "keywords": ["دلتا 170", "delta 170"], "exclusions": [], "copy_brands": []},
     "Dino 125": {"parent_brand": "Dino", "keywords": ["دینو ۱۲۵", "dino 125"], "exclusions": [], "copy_brands": []},
     "Dy 125": {"parent_brand": "Ashil", "keywords": ["آشیل 125", "dy 125", "دی وای"], "exclusions": [], "copy_brands": []},
+    "CUX": { "parent_brand": "Super Soco", "keywords": [ "cux", "CUx" ], "exclusions": [], "copy_brands": [] },
+    "CUX DUCATI": { "parent_brand": "Super Soco", "keywords": [ "CUx Ducati", "cuxducati" ], "exclusions": [], "copy_brands": [] },
+    "TC": { "parent_brand": "Super Soco", "keywords": [ "TC", "tc" ], "exclusions": [], "copy_brands": [] },
+    "TC MAX": { "parent_brand": "Super Soco", "keywords": [ "TC MAX", "tcmax" ], "exclusions": [], "copy_brands": [] },
+    "TS": { "parent_brand": "Super Soco", "keywords": [ "ts", "TS" ], "exclusions": [], "copy_brands": [] },
+    "TS P": { "parent_brand": "Super Soco", "keywords": [ "tsp", "TS P" ], "exclusions": [], "copy_brands": [] },
+
+    
+    "A 150": { "parent_brand": "Kayo", "keywords": [ "atv150", "A 150" ], "exclusions": [], "copy_brands": [] },
+    "A 180": { "parent_brand": "Kayo", "keywords": [ "A 180", "a180" ], "exclusions": [], "copy_brands": [] },
+    "AU 110": { "parent_brand": "Kayo", "keywords": [ "au110", "AU 110" ], "exclusions": [], "copy_brands": [] },
+    "AU 150": { "parent_brand": "Kayo", "keywords": [ "au150", "AU 150" ], "exclusions": [], "copy_brands": [] },
+    "AU 180": { "parent_brand": "Kayo", "keywords": [ "au180", "AU 180" ], "exclusions": [], "copy_brands": [] },
+    "AU 180N": { "parent_brand": "Kayo", "keywords": [ "AU 180N", "au180n" ], "exclusions": [], "copy_brands": [] },
+    "AU 200": { "parent_brand": "Kayo", "keywords": [ "AU 200", "atv200" ], "exclusions": [], "copy_brands": [] },
+    "AU 200N": { "parent_brand": "Kayo", "keywords": [ "au200n", "AU 200N" ], "exclusions": [], "copy_brands": [] },
+    "AY 70": { "parent_brand": "Kayo", "keywords": [ "ay70", "AY 70" ], "exclusions": [], "copy_brands": [] },
+    "S 200": { "parent_brand": "Kayo", "keywords": [ "s200", "S 200" ], "exclusions": [], "copy_brands": [] },
+
+    "ATR 175": {"parent_brand": "Qjmotor", "keywords": ["ATR 175", "atr175", "ای تی آر 175"], "exclusions": [], "copy_brands": []},
+    "LTR175": {"parent_brand": "Qjmotor", "keywords": ["ltr175", "LTR175", "ال تی آر 175"], "exclusions": [], "copy_brands": []},
+    "NX 190": {"parent_brand": "Qjmotor", "keywords": ["nx190", "NX 190", "ان ایکس 190"], "exclusions": [], "copy_brands": []},
+    "SRK 249": {"parent_brand": "Qjmotor", "keywords": ["srk249", "SRK 249", "اس آر کی 249"], "exclusions": [], "copy_brands": []},
+    "SRK 249 RR": {"parent_brand": "Qjmotor", "keywords": ["srk249rr", "SRK 249 RR", "اس آر کی 249 آر آر"], "exclusions": [], "copy_brands": []},
+    "SRV 249": {"parent_brand": "Qjmotor", "keywords": ["SRV 249", "srv249", "اس آر وی 249"], "exclusions": [], "copy_brands": []},
+    "SRV 249S": {"parent_brand": "Qjmotor", "keywords": ["srv249s", "SRV 249S", "اس آر وی 249 اس"], "exclusions": [], "copy_brands": []},
+    "SRV 249VS": {"parent_brand": "Qjmotor", "keywords": ["SRV 249VS", "srv249vs", "اس آر وی 249 وی اس"], "exclusions": [], "copy_brands": []},
+    "TRX150": {"parent_brand": "Qjmotor", "keywords": ["trx150", "TRX150", "تی آر ایکس 150"], "exclusions": [], "copy_brands": []},
+    "TRX249": {"parent_brand": "Qjmotor", "keywords": ["TRX249", "trx249", "تی آر ایکس 249"], "exclusions": [], "copy_brands": []},
+    "VPS 125": {"parent_brand": "Qjmotor", "keywords": ["VPS 125", "vps125", "وی پی اس 125"], "exclusions": [], "copy_brands": []},
+
+    #Iran Docharkh
+    "STR 160": {"parent_brand": "Aprilia", "keywords": ["str160", "STR 160", "اس تی آر 160"], "exclusions": [], "copy_brands": []},
+    "ADX 150": {"parent_brand": "Iran Doocharkh", "keywords": ["ADX 150", "adx150", "ای دی ایکس 150"], "exclusions": [], "copy_brands": []},
+    "ARX 150": {"parent_brand": "Iran Doocharkh", "keywords": ["arx150", "ARX 150", "ای آر ایکس 150"], "exclusions": [], "copy_brands": []},
+    "DS 200": {"parent_brand": "Iran Doocharkh", "keywords": ["DS 200", "ds200", "دی اس 200"], "exclusions": [], "copy_brands": []},
+    "DS230": {"parent_brand": "Iran Doocharkh", "keywords": ["ds230", "DS230", "دی اس 230"], "exclusions": [], "copy_brands": []},
+    "KPT 200": {"parent_brand": "Iran Doocharkh", "keywords": ["kpt200", "KPT 200", "کی پی تی 200"], "exclusions": [], "copy_brands": []},
+    "KPT 200 PRO": {"parent_brand": "Iran Doocharkh", "keywords": ["KPT 200 PRO", "kpt200pro", "کی پی تی 200 پرو"], "exclusions": [], "copy_brands": []},
+    "RT3 CYCLONE 250": {"parent_brand": "Iran Doocharkh", "keywords": ["RT3 Cyclone 250", "rt3cyclone250", "آر تی 3 سایکلون 250"], "exclusions": [], "copy_brands": []},
+    "TY20": {"parent_brand": "Iran Doocharkh", "keywords": ["ty20", "TY20", "تی وای 20"], "exclusions": [], "copy_brands": []},
+    "X2": {"parent_brand": "Iran Doocharkh", "keywords": ["X2", "x2", "ایکس 2"], "exclusions": [], "copy_brands": []},
+    "XY150": {"parent_brand": "Iran Doocharkh", "keywords": ["XY150", "xy150", "ایکس وای 150"], "exclusions": [], "copy_brands": []},
+    "YB 150": {"parent_brand": "Iran Doocharkh", "keywords": ["yb150", "YB 150", "وای بی 150"], "exclusions": [], "copy_brands": []},
+    "ARSHIA 125": {"parent_brand": "Iran Doocharkh", "keywords": ["ARSHIA 125", "arshia125", "آرشیا 125"], "exclusions": [], "copy_brands": []},
+    "ARSHIA 150": {"parent_brand": "Iran Doocharkh", "keywords": ["ARSHIA 150", "arshia150", "آرشیا 150"], "exclusions": [], "copy_brands": []},
+    "200 ARSHIA": {"parent_brand": "Iran Doocharkh", "keywords": ["200 ARSHIA", "200arshia", "آرشیا 200"], "exclusions": [], "copy_brands": []},
+    "TRAIL 230": {"parent_brand": "Iran Doocharkh", "keywords": ["TRAIL 230", "trail230", "تریل 230"], "exclusions": [], "copy_brands": []},
+    "JEYRAN 305": {"parent_brand": "Iran Doocharkh", "keywords": ["JEYRAN 305", "jeyran305", "جیران 305"], "exclusions": [], "copy_brands": []},
+    "JEYRAN 309": {"parent_brand": "Iran Doocharkh", "keywords": ["JEYRAN 309", "jeyran309", "جیران 309"], "exclusions": [], "copy_brands": []},
+    "3 WHEEL 500 W": {"parent_brand": "Iran Doocharkh", "keywords": ["3 WHEEL 500 W", "3wheel500w", "سه چرخه برقی 500 وات"], "exclusions": [], "copy_brands": []},
+    "CAPTAIN 150": {"parent_brand": "Iran Doocharkh", "keywords": ["CAPTAIN 150", "captain150", "کاپیتان 150"], "exclusions": [], "copy_brands": []},
+    "VETERANO": {"parent_brand": "Iran Doocharkh", "keywords": ["VETERANO", "veterano", "وترانو"], "exclusions": [], "copy_brands": []},
+    "PM 02": {"parent_brand": "Peugeot", "keywords": ["PM 02", "pm02", "پی ام 02"], "exclusions": [], "copy_brands": []},
+    "XP 400": {"parent_brand": "Peugeot", "keywords": ["XP 400", "xp400", "ایکس پی 400"], "exclusions": [], "copy_brands": []},
+    "TWEET 200": {"parent_brand": "Peugeot", "keywords": ["TWEET 200", "tweet200", "توییت 200"], "exclusions": [], "copy_brands": []},
+    "DJANGO 125": {"parent_brand": "Peugeot", "keywords": ["DJANGO 125", "django125", "جانگو 125"], "exclusions": [], "copy_brands": []},
+    "DJANGO 150": {"parent_brand": "Peugeot", "keywords": ["DJANGO 150", "django150", "جانگو 150"], "exclusions": [], "copy_brands": []},
+    "LIBERTY 150 S": {"parent_brand": "Piaggio", "keywords": ["LIBERTY 150 S", "liberty150s", "لیبرتی 150S", "لیبرتی 150 اس"], "exclusions": [], "copy_brands": []},
+    "MEDLEY 150": {"parent_brand": "Piaggio", "keywords": ["MEDLEY 150", "medley150", "مدلی 150"], "exclusions": [], "copy_brands": []},
+    "GP2-200": {"parent_brand": "Taro", "keywords": ["GP2-200", "gp2200", "جی پی 2 200"], "exclusions": [], "copy_brands": []},
+    "SCRAMBLER 249": {"parent_brand": "Taro", "keywords": ["SCRAMBLER 249", "scrambler249", "اسکرمبلر 249"], "exclusions": [], "copy_brands": []},
+    "DEFENDER 180": {"parent_brand": "Taro", "keywords": ["DEFENDER 180", "defender180", "دیفندر 180"], "exclusions": [], "copy_brands": []},
+    "N 180": {"parent_brand": "Rapido", "keywords": ["N 180", "n180", "ان 180"], "exclusions": [], "copy_brands": []},
+    "GP 170": {"parent_brand": "Royalalloy", "keywords": ["GP 170", "gp170", "جی پی 170"], "exclusions": [], "copy_brands": []},
+    "TG 170": {"parent_brand": "Royalalloy", "keywords": ["TG 170", "tg170", "تی جی 170"], "exclusions": [], "copy_brands": []},
+    
 }
