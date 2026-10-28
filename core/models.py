@@ -1,8 +1,9 @@
-from sqlalchemy import Column, String, Integer, Text, BigInteger, Float, Boolean, Date, DateTime, ForeignKey, JSON, Enum, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Text, BigInteger, Float, Boolean, Date, DateTime, ForeignKey, JSON, Enum, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from core.database import Base
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Optional
 import datetime as dt
 import enum
@@ -79,6 +80,9 @@ class ProcessedListing(Base):
     is_valid_ad = Column(Integer, default=1)
     mileage_bucket = Column(Integer)
     status = Column(String)
+
+    model_variant = Column(String(64), nullable=True, index=True)
+    condition_tier = Column(Integer, nullable=True, index=True)
     
     # System & Tracking
     is_system_guess_correct = Column(Integer)
@@ -95,6 +99,10 @@ class ModelIndexHistory(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     motorcycle_model_id = Column(Integer, index=True, nullable=False)
+
+    real_brand = Column(String(120), nullable=False)
+    real_model = Column(String(120), nullable=False)
+
     
     date = Column(Date, default=dt.date.today, nullable=False)
     # date = Column(String(10), nullable=False)
@@ -115,9 +123,13 @@ class ModelIndexHistory(Base):
     # MODEL QUALITY & STATS
     # -----------------------------
     mape = Column(Float, default=0.0)
+    coverage_percent = Column(Float, default=0.0)
+    shift = Column(Float, default=0.0)
     sample_count = Column(Integer, default=0)
     algorithm = Column(String(120), nullable=False)
     is_reliable = Column(Boolean, default=False, index=True)
+    is_copy = Column(Boolean, index=True, nullable=False, default=False)
+    model_variant = Column(String(64), index=True, nullable=False, default="DEFAULT")
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -145,10 +157,16 @@ class PriceSurface(Base):
     
     motorcycle_model_id = Column(Integer, index=True, nullable=False)
 
+    real_brand = Column(String(120), nullable=False)
+    real_model = Column(String(120), nullable=False)
+
     # ابعاد سطح (Dimensions)
     year = Column(Integer, index=True, nullable=False)
     mileage_bucket = Column(Integer, index=True, nullable=False)
+    condition_tier = Column(Integer, index=True, nullable=False)
     color = Column(String(32), index=True, nullable=False)
+    is_copy = Column(Boolean, index=True, nullable=False, default=False)
+    model_variant = Column(String(64), index=True, nullable=False, default="DEFAULT")
 
     # -----------------------------
     # PREDICTED DYNAMIC INTERVAL
@@ -162,10 +180,11 @@ class PriceSurface(Base):
     # snapshot = relationship("ModelIndexHistory", back_populates="price_surfaces")
 
     # __table_args__ = (
-    #     UniqueConstraint('snapshot_id','motorcycle_model_id', 'year', 'mileage_bucket', 'color', name='uniq_surface_snapshot_cell'),
-    #     Index('surface_lookup_idx', 'real_brand', 'real_model', 'year', 'mileage_bucket', 'color'),
-    #     Index('surface_snapshot_idx', 'snapshot_id', 'real_brand', 'real_model'),
+        # UniqueConstraint('snapshot_id','motorcycle_model_id', 'year', 'mileage_bucket', 'is_copy', 'model_variant','color', name='uniq_surface_snapshot_cell'),
+        # Index('surface_lookup_idx', 'real_brand', 'real_model', 'year', 'mileage_bucket', 'color'),
+        # Index('surface_snapshot_idx', 'snapshot_id', 'real_brand', 'real_model'),
     # )
+    
 
     # def __repr__(self):
     #     return f"<{self.real_brand} {self.real_model} | y={self.year} | b={self.mileage_bucket} | Mid: {self.price_mid}>"

@@ -2,7 +2,8 @@ import pandas as pd
 import logging
 from core.config import LOOKBACK_DAYS
 import jdatetime
-from ml_engine import DataPreprocessor, PriceModelTrainer
+from ml_engine import PriceModelTrainer
+from ml_engine._01_data_prep import DataPreprocessor
 from sqlalchemy.orm import Session
 from core.models import ProcessedListing 
 from core.database import DjangoSession, SessionLocal 

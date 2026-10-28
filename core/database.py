@@ -14,7 +14,8 @@ else:
         max_overflow=20,    
         pool_pre_ping=True  
     )
-    django_engine = create_engine(DJANGO_DB_URL,pool_size=10, max_overflow=20, pool_pre_ping=True)
+
+django_engine = create_engine(DJANGO_DB_URL,pool_size=10, max_overflow=20, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 DjangoSession = sessionmaker(autocommit=False, autoflush=False, bind=django_engine)

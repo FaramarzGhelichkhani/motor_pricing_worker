@@ -1,0 +1,21 @@
+# FROM metabase/metabase:v0.57.3
+
+# EXPOSE 3000
+
+FROM grafana/grafana:13.2.3
+
+ENV GF_SERVER_HTTP_PORT=3000 \
+    GF_USERS_ALLOW_SIGN_UP=false \
+    GF_USERS_ALLOW_ORG_CREATE=false \
+    GF_ANALYTICS_REPORTING_ENABLED=false \
+    GF_ANALYTICS_CHECK_FOR_UPDATES=false \
+    GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false \
+    GF_LOG_LEVEL=warn \
+    GF_DATABASE_TYPE=postgres \
+    GF_DATABASE_HOST=workerdb-tby-service:5432 \
+    GF_DATABASE_NAME=grafana_db \
+    GF_DATABASE_USER=postgres \
+    GF_DATABASE_PASSWORD=pP2eYXs5nVqhg4GssXRr \
+    GF_DATABASE_SSL_MODE=disable
+
+EXPOSE 3000

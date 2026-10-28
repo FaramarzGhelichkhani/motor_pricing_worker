@@ -13,7 +13,8 @@ IRANIAN_BRANDS = [
     "Pishro", "Pishtaz", "Parvaz", "Iran Doocharkh", "Toosan", "Matin Khodro", 
     "Jahan Hamta", "Zomorod Kavir", "Hani", "Xigma", "Salar Gostar", 
     "Nikran Motor", "Jahanroo", "Takht-e-Jamshid", "Shahin Motor", "Mehran", 
-    "Amico", "Ehsan", "Talash", "Shabab", "Tondar Shahab", "Hormoz", "Rika", "Saqeb"
+    "Amico", "Ehsan", "Talash", "Shabab", "Tondar Shahab", "Hormoz", "Rika", "Saqeb",
+    
 ]
 
 # =========================================================
@@ -277,6 +278,7 @@ GLOBAL_PLATFORM_MAP = {
     },
     "NMAX 150": {"parent_brand": "Yamaha", "keywords": ["nmax 150", "انمکس150"], "exclusions": ["155"], "copy_brands": []},
     "XMAX 250": {"parent_brand": "Yamaha", "keywords": ["xmax 250", "x max 250", "ایکس مکس 250", "xmax", "یاماها ایکس مکس"], "exclusions": ["300"], "copy_brands": ["Niroo Motor"]},
+    "XMAX 295": {"parent_brand": "Yamaha", "keywords": ["xmax 295", "x max 295", "ایکس مکس 295", "xmax", "یاماها XMAX 295"], "exclusions": ["250"], "copy_brands": ["Niroo Motor"]},
     "MX KING 150": {"parent_brand": "Yamaha", "keywords": ["mx king 150", "mx king", "ام ایکس کینگ", "mxking150", "mxking 150"], "exclusions": [], "copy_brands": ["Niroo Motor"]},
     
     # R / MT / Offroad

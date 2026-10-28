@@ -75,3 +75,4 @@ gemini_test_*.json
 /downloaded_images/
 *.json
 test.py
+/train/
