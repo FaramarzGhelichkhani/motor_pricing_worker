@@ -22,9 +22,10 @@ from .age_market import AgeMarketBuilder
 from .mileage import MileageHierarchy, LOW, HIGH, monotone_curve_on_age_grid
 from .database import SurfaceDatabaseMixin
 from .reliability import HierarchicalSurfaceReliability
-from .reliability_v10 import EvidenceFirstReliabilityV10, ReliabilityV10Config
 from .bounded_calibration_v3 import NarrowIntervalPositioner
 from .local_bias_v7 import LocalSelectiveBiasCalibrator, LocalRiskConfig, downward_monotone_envelope
+from .publication_policy import apply_publication, PublicationConfig, POLICY_VERSION
+from .recent_market_guard import apply_recent_market_guard
 from .weighted_isotonic_v3 import weighted_ragged_isotonic
 from .coverage_policy_v4 import apply_age_window_certificate
 
@@ -61,60 +62,13 @@ class SurfaceConfig:
     threads: int = 6
     condition_levels: tuple = (1, 2, 3)
     bucket_levels: tuple = (0, 1, 2, 3, 4, 5, 6, 7, 8)
-    age_zero_all_buckets: bool = True
     isotonic_warn_pct: float = 3.0
     isotonic_block_pct: float = 5.0
     compact_output_default: bool = True
-    factory_max_age_days: int = 30
-    include_unmatched_factory: bool = True  # emit as UNKNOWN ID, never falsely attach to used
     min_age_training_cells: int = 200
-    min_calibration_cells_per_group: int = 5
-    # Deprecated config keys kept for compatibility: directional calibration
-    # no longer gates on MAPE or a global overpricing threshold.
-    shift_trigger_mape_pct: float = 8.
-    shift_trigger_overpricing_pct: float = 2.5
-    max_shift_pct: float = 3.
-    # Leakage-safe, *per-cell* directional bias calibration based on completed OOF folds.
-    # Error is log(price_raw / future_week_median), NOT MAPE.
-    shift_cellwise_enabled: bool = True
-    shift_min_backtest_weeks: int = 2
-    shift_min_effective_n: float = 2.0
-    shift_bias_prior_cells: float = 3.0
-    shift_neighbor_age_scale: float = 2.5
-    shift_neighbor_bucket_scale: float = 1.6
-    shift_neighbor_condition_scale: float = 1.0
-    shift_time_half_life_days: float = 35.0
-    shift_uncertainty_z: float = 0.30
-    shift_parent_fallback: bool = True
-    shift_parent_max_pct: float = 1.0
-    # Automatic forward-only safety gate: if 2 independent active folds
-    # show that directional correction worsens MAPE, deploy ZERO shift.
-    shift_walkforward_safety_gate: bool = True
-    shift_safety_min_active_folds: int = 2
-    shift_safety_min_active_cells: int = 20
-    # Conservatively extrapolate a *declining* recent OOF overpricing signal;
-    # otherwise stale positive bias can over-shift a rising-price market.
-    shift_trend_guard_enabled: bool = True
-    shift_trend_min_weeks: int = 3
-    shift_trend_max_log_per_week: float = 0.030
-    # V3: two-sided SMALL adjustments, based only on completed future-week medians.
+    # Calibration uses completed earlier-fold OOF evidence.
     center_calibration_enabled: bool = True
-    # V5: consumer priority is a LOW RISK of overestimation, not minimum MAPE.
-    # Calibrate only from COMPLETED outside-of-fold weekly median prices.
-    # V6: NO global risk quantile. Shift only when OOF evidence for model/age
-    # (or better, exact cell) shows robust and persistent overestimation.
-    selective_min_age_n: int = 10
-    selective_min_age_weeks: int = 2
-    selective_min_local_n: int = 10
-    selective_min_local_weeks: int = 2
-    selective_positive_share: float = 0.60
-    selective_wilson_lower: float = 0.45
-    selective_min_median_over_pct: float = 0.50
-    selective_strength: float = 0.60
-    selective_shrinkage_prior: float = 10.0
-    selective_recent_guard: bool = True
-    selective_allow_group_fallback: bool = False
-    # V7: OOF-local, age/mileage/condition-smoothed selective correction.
+    # Local selective calibration.
     local_age_sigma: float = 1.2
     local_mileage_sigma: float = 2.5
     local_condition_sigma: float = 1.4
@@ -130,16 +84,8 @@ class SurfaceConfig:
     local_recent_guard: bool = True
     local_recent_max_negative_log: float = 0.01
     local_lookback_days: int = 70
-    # Deprecated V5 controls retained for old SurfaceConfig callers.
-    risk_quantile: float = 0.20
     risk_max_down_pct: float = 3.0
-    risk_local_shrinkage_prior: float = 25.0
-    risk_min_local_cells: int = 5
-    risk_min_local_weeks: int = 2
-    center_correction_strength: float = 0.25
     center_max_adjust_pct: float = 3.0
-    center_shrinkage_prior: float = 25.0
-    center_half_life_days: float = 35.0
     weighted_isotonic_enabled: bool = True
     # Adaptive position may increase or decrease coverage; default OFF until validated.
     bounded_interval_adaptive_position: bool = False
@@ -210,22 +156,6 @@ class SurfaceConfig:
     quality_expanded_market_max_abs_signed_bias_pct: float = 8.0
     quality_market_group_max_abs_bias_pct: float = 8.0
     quality_max_cell_isotonic_change_pct: float = 5.0
-    # V10: combine sparse genuine OOF with recent exact-cell market corroboration.
-    quality_v10_enabled: bool = True
-    quality_v10_max_mdape_pct: float = 8.0
-    quality_v10_max_mape_pct: float = 12.0
-    quality_v10_oof_min_cells: int = 2
-    quality_v10_max_sparse_oof_for_market: int = 2
-    quality_v10_market_min_ads: int = 5
-    quality_v10_market_min_days: int = 3
-    quality_v10_local_over_pct: float = 12.0
-    # Production-safe default: this lane uses in-sample recent market fit only.
-    quality_v10_publish_market_provisional: bool = False
-    quality_v10_local_under_pct: float = 15.0
-    quality_v10_target_min_unique_ads: int = 3
-    quality_v10_target_min_days: int = 2
-    quality_v10_target_max_iqr_pct: float = 25.0
-    quality_v10_target_max_loo_shift_pct: float = 12.0
     min_model_risk_target_ads: int = 5
     min_model_risk_target_days: int = 2
     max_model_risk_target_iqr_pct: float = 25.0
@@ -254,8 +184,7 @@ def _keys(df):
 def _parse_source_is_original(values: pd.Series) -> pd.Series:
     """Parse DB is_original without guessing from is_copy or brand.
 
-    Ads may contain literal bools or 'True'/'False' strings while factory has
-    numeric 0/1. Unparseable or missing values stay missing.
+    Interpret known 0/1 and boolean strings from advertisement rows only.
     """
     s = pd.Series(values, index=values.index).astype('string').str.strip().str.lower()
     return pd.to_numeric(s.replace({
@@ -294,7 +223,7 @@ def _keep_surface_identities(grid: pd.DataFrame, original_by_id: pd.Series) -> p
     """SURFACE ONLY: require known model ID and is_copy == 1 - DB is_original.
 
     Never infer source is_original from is_copy and never filter training ads.
-    Both factory and used-price candidates pass through the same gate.
+    Only ad-derived used-price candidates pass through this gate.
     """
     if grid.empty:
         return grid.copy()
@@ -304,8 +233,7 @@ def _keep_surface_identities(grid: pd.DataFrame, original_by_id: pd.Series) -> p
     db_original = model_key.map(original_by_id)
     copy = pd.to_numeric(x['is_copy'], errors='coerce')
     keep = mid.notna() & db_original.isin([0, 1]) & copy.isin([0, 1]) & copy.eq(1 - db_original)
-    # If a source-original value is attached to a factory quote, do not
-    # publish it when it disagrees with the model's authoritative identity.
+    # Preserve authoritative source identity consistency.
     if 'is_original' in x.columns:
         source = _parse_source_is_original(x['is_original'])
         keep &= source.isna() | source.eq(db_original)
@@ -383,7 +311,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         self._input_year_data = None
         self._surface_original_by_id = pd.Series(dtype='int8', name='is_original')
         self.ads = None
-        self.factory = None
         self.market_builder = None
         self.snapshots = None
         self.train_ads = None
@@ -418,8 +345,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         self.backtest_group_metrics = pd.DataFrame()
         self.grid_bucket_limits = pd.DataFrame()
         self.reliability_policy = None
-        self._quality_v10_policy = None
-        self._quality_v10_models = pd.DataFrame()
         self.backtest_reliability_metrics = pd.DataFrame()
         self.backtest_reliability_group_metrics = pd.DataFrame()
 
@@ -460,14 +385,21 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         self.backtest_group_metrics = pd.DataFrame()
         self.grid_bucket_limits = pd.DataFrame()
         self.reliability_policy = None
-        self._quality_v10_policy = None
-        self._quality_v10_models = pd.DataFrame()
         self.backtest_reliability_metrics = pd.DataFrame()
         self.backtest_reliability_group_metrics = pd.DataFrame()
         self.calibration = pd.DataFrame()
         self.calibration_global = {}
         self.center_calibrator.fit(pd.DataFrame(), cutoff=pd.Timestamp.today())
         self.interval_positioner.fit(pd.DataFrame(), cutoff=pd.Timestamp.today())
+        if 'source' not in df:
+            raise ValueError("Missing 'source'; cannot verify ads-only input")
+        ads_mask = df['source'].astype('string').str.strip().str.lower().eq('ads').fillna(False)
+        excluded = int((~ads_mask).sum())
+        df = df.loc[ads_mask].copy()
+        df['source'] = 'ads'
+        log.info('[DATA] excluded %s non-ads rows BEFORE identity/year/feature work', excluded)
+        if df.empty:
+            raise ValueError('No ad observations: factory data cannot train used-price models')
         self._input_year_data = df[[c for c in (GROUP + ['age', 'date', 'production_year']) if c in df.columns]].copy()
         necessary = GROUP + ['date','source','price','age','mileage','mileage_bucket','condition_tier']
         missing = [c for c in necessary if c not in df]
@@ -496,7 +428,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         self.ads.loc[self.ads.mileage_bucket.eq(0), 'mileage_clean'] = 0.0
         self.ads['segment'] = self.ads['segment'].fillna('UNKNOWN').astype(str)
         self.ads = self.ads[self.ads['date'].notna()]
-        self.factory = df[df['source'].eq('factory') & df.price.gt(0) & df.date.notna()].copy()
         if self.ads.empty: raise ValueError('No eligible used ads')
         self.market_builder = AgeMarketBuilder(
             self.ads,
@@ -505,7 +436,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             include_age_zero=True,
         )
         self.ads = self.market_builder.ads.copy()
-        log.info('[DATA] Valid used ads=%s | factory=%s | dates=%s -> %s', f'{len(self.ads):,}', f'{len(self.factory):,}', self.ads.date.min().date(), self.ads.date.max().date())
+        log.info('[DATA] Valid used ads=%s | dates=%s -> %s', f'{len(self.ads):,}', self.ads.date.min().date(), self.ads.date.max().date())
         return self
 
     def _origins(self, asof):
@@ -769,7 +700,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         """Count distinct eligible ads, not reposts, within the preceding 30d.
 
         The identity is PARENT, intentionally ignoring variant, age, mileage,
-        and condition. Never include future ads or factory quotes.
+        and condition. Never include future advertisements.
         """
         recent=history.loc[history.date.ge(pd.Timestamp(asof)-pd.Timedelta(days=30))
                            & history.date.lt(pd.Timestamp(asof))].copy()
@@ -935,44 +866,10 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         g['local_cell_n']=g.local_cell_n.fillna(0).astype(int)
         g=self.add_features(g)
         g['is_factory']=False
-        g['factory_anchor_price']=np.nan
-        g['factory_date']=pd.NaT
-        g['factory_identity_status']=pd.NA
         g['market_asof']=pd.Timestamp(asof)
         log.info('[GRID] Used grid: %s cells | %s with no exact historical support', f'{len(g):,}',f'{int(g.local_cell_n.eq(0).sum()):,}')
         return g
 
-
-    def _build_factory_grid(self, asof):
-        if self.factory is None or self.factory.empty:return pd.DataFrame()
-        asof=pd.Timestamp(asof)
-        f=self.factory[(self.factory.date<asof)&(self.factory.date>=asof-pd.Timedelta(days=self.config.factory_max_age_days))].copy()
-        if f.empty:return pd.DataFrame()
-        # Resolve missing factory ids only when the natural key uniquely identifies one used group.
-        natural=['real_brand','real_model','is_copy','model_variant']
-        ids=self.ads[self.ads.date.lt(asof)][GROUP].drop_duplicates()
-        mp=ids.groupby(natural,dropna=False)['motorcycle_model_id'].agg(lambda x:x.iloc[0] if x.nunique()==1 else 'UNKNOWN').rename('_matched_id').reset_index()
-        f=f.merge(mp,on=natural,how='left',validate='many_to_one')
-        f['motorcycle_model_id']=f['motorcycle_model_id'].where(f['motorcycle_model_id'].ne('UNKNOWN'),f['_matched_id'])
-        f['motorcycle_model_id']=f['motorcycle_model_id'].fillna('UNKNOWN')
-        f['factory_identity_status']=np.where(f.motorcycle_model_id.ne('UNKNOWN'),'MATCHED_OR_KNOWN_ID','UNMATCHED_MODEL_ID')
-        if not self.config.include_unmatched_factory:
-            f=f[f.motorcycle_model_id.ne('UNKNOWN')].copy()
-        # No artificial motorcycle_model_id: unmatched groups are stand-alone Factory prices.
-        f=f[f.real_brand.ne('UNKNOWN')&f.real_model.ne('UNKNOWN')].copy()
-        if f.empty:return pd.DataFrame()
-        last=f.groupby(GROUP,dropna=False).date.transform('max')
-        f=f[f.date.eq(last)].groupby(GROUP,as_index=False,dropna=False).agg(
-            factory_anchor_price=('price','median'),factory_date=('date','max'),
-            factory_identity_status=('factory_identity_status','first'))
-        f['age']=0;f['mileage_bucket']=0;f['condition_tier']=1;f['mileage_clean']=0.
-        f['reference_price']=f.factory_anchor_price
-        f['price_raw']=f.factory_anchor_price
-        f['price_monotonic']=f.factory_anchor_price
-        f['km_origin']='factory_zero';f['local_n']=0;f['local_cell_n']=0
-        f['market_asof']=pd.Timestamp(asof)
-        f['is_factory']=True
-        return f
 
     @staticmethod
     def _ragged_monotone_projection(prices, coordinates, fixed_anchor=None):
@@ -1012,11 +909,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         return np.exp(y)
 
     def _project_monotone(self, grid):
-        """Project used-bike cells only; factory is a fixed *separate* quote.
-
-        No used price is capped by a factory quote. Monotonicity is guaranteed
-        on comparable USED cells, not across the independent factory source.
-        """
+        """Enforce monotonicity on the ad-derived used-price grid."""
         g = grid.sort_values(CELL).reset_index(drop=True)
         g['price_monotonic'] = np.nan
         g['price_unshifted_monotonic'] = np.nan
@@ -1026,18 +919,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         violations = {'age_before': 0, 'mileage_before': 0, 'condition_before': 0}
         gi = g.groupby(GROUP, sort=False).indices
         for ix, (_, indices) in enumerate(gi.items(), 1):
-            ids_all = np.asarray(indices, int)
-            factory_mask = g.loc[ids_all,'is_factory'].fillna(False).to_numpy(bool)
-            # Never let the factory quote act as an anchor OR a weighted sample.
-            ids_factory = ids_all[factory_mask]
-            ids = ids_all[~factory_mask]
-            if len(ids_factory):
-                fac_raw = g.loc[ids_factory,'price_raw'].to_numpy(float)
-                g.loc[ids_factory,'price_unshifted_monotonic'] = fac_raw
-                g.loc[ids_factory,'price_monotonic'] = fac_raw
-                g.loc[ids_factory,'price_shifted_pre_iso'] = fac_raw
-            if not len(ids):
-                continue
+            ids = np.asarray(indices, int)
             coords = g.loc[ids,['age','mileage_bucket','condition_tier']].to_numpy(int)
             raw = g.loc[ids,'price_raw'].to_numpy(float)
             c30 = pd.to_numeric(g.loc[ids,'n30'],errors='coerce').fillna(0).clip(lower=0).to_numpy(float)
@@ -1064,7 +946,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                     positions=positions[np.argsort(coords[positions,axis])]
                     violations[name]+=int((np.diff(raw[positions])>1e-9).sum())
             if self.config.log_every_n_groups and ix%self.config.log_every_n_groups==0:
-                log.info('[ISO] %s/%s groups projected (factory excluded)',ix,len(gi))
+                log.info('[ISO] %s/%s used-price groups projected',ix,len(gi))
         g['isotonic_change_pct'] = 100*(g.price_unshifted_monotonic/g.price_raw-1)
         g['center_adjustment_effective_pct'] = 100*(g.price_monotonic/g.price_unshifted_monotonic-1)
         g['shift_down_pct'] = (-g['center_adjustment_effective_pct']).clip(lower=0.)
@@ -1115,44 +997,24 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         # reliability policy sets the final publication state after OOF review.
         return g
 
-    def build_surface(self, asof=None, residual_model=None, with_factory=True):
+    def build_surface(self, asof=None, residual_model=None):
         if self.snapshots is None:raise RuntimeError('fit() before build_surface()')
         started=time.perf_counter()
         asof=pd.Timestamp(asof if asof is not None else self.asof).normalize()
         model=residual_model if residual_model is not None else self.residual_model
         if model is None:raise RuntimeError('No fitted Residual model')
-        log.info('[SURFACE] START %s, with_factory=%s',asof.date(),with_factory)
+        log.info('[SURFACE] START used-only %s',asof.date())
         history=self.ads[self.ads.date.lt(asof)].copy()
         used=self._build_used_grid(asof,history)
         used['reference_price']=np.exp(used.age_ref_log)
         used['price_raw']=np.exp(used.age_ref_log+model.predict(used[FEATURES_24]))
         if not np.isfinite(used.price_raw).all():raise ValueError('Non-finite Residual prices')
-        factory=self._build_factory_grid(asof) if with_factory else pd.DataFrame()
-        factory_only=pd.DataFrame()
-        used['_group_factory_anchor']=np.nan
-        if len(factory):
-            fac=factory[GROUP+['factory_anchor_price','factory_date','factory_identity_status']].copy()
-            # Factory MUST match every group identity exactly; do not use an
-            # approximate product/variant join or override different motor groups.
-            used=used.drop(columns=['factory_anchor_price','factory_date','factory_identity_status'])
-            used=used.merge(fac,on=GROUP,how='left',validate='many_to_one')
-            at_anchor=used.age.eq(0)&used.mileage_bucket.eq(0)&used.condition_tier.eq(1)
-            anchored=at_anchor&used.factory_anchor_price.gt(0)
-            used.loc[anchored,'price_raw']=used.loc[anchored,'factory_anchor_price']
-            used.loc[anchored,'is_factory']=True
-            used['_group_factory_anchor']=used['factory_anchor_price']
-            matched_groups=used.loc[anchored,GROUP].drop_duplicates()
-            extras=fac.merge(matched_groups.assign(_seen=True),on=GROUP,how='left',validate='one_to_one')
-            extras=extras.loc[extras._seen.isna(),GROUP].copy()
-            if len(extras):
-                factory_only=factory.merge(extras,on=GROUP,how='inner',validate='one_to_one')
         # V7: localized OOF-positive-only adjustment. Raw prices are first
         # weighted-isotonic, then discounted with minimal monotone closure.
         used=self.center_calibrator.predict(used,asof)
         if not self.config.center_calibration_enabled:
             used['center_adjustment_pct']=0.0
             used['center_calibration_source']='disabled'
-        used.loc[used['is_factory'].fillna(False),'center_adjustment_pct']=0.0
         used['price_shifted_pre_iso']=(used['price_raw']*(1+used['center_adjustment_pct']/100.))
         # This is evidence-based proposed discount, not the unknowable true error.
         used['estimated_overpricing_pct']=used.get('center_signed_median_over_pct',np.nan)
@@ -1163,59 +1025,8 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             raise ValueError('Invalid signed center calibration price')
         used,viol=self._project_monotone(used)
         used=self._intervals(used)
-        is_fac=used['is_factory'].fillna(False)
-        if is_fac.any():
-            ratio=math.sqrt(1.01)
-            used.loc[is_fac,'price_monotonic']=used.loc[is_fac,'factory_anchor_price']
-            used.loc[is_fac,'price_center']=used.loc[is_fac,'factory_anchor_price']
-            used.loc[is_fac,'price_low']=used.loc[is_fac,'factory_anchor_price']/ratio
-            used.loc[is_fac,'price_high']=used.loc[is_fac,'factory_anchor_price']*ratio
-            used.loc[is_fac,'band_width_pct']=1.0
-            used.loc[is_fac,'shift_down_pct']=0.0
-            used.loc[is_fac,'center_shift_isotonic_spillover']=False
-            used.loc[is_fac,'center_adjustment_pct']=0.0
-            used.loc[is_fac,'center_adjustment_effective_pct']=0.0
-            used.loc[is_fac,'center_calibration_source']='factory_fixed'
-            used.loc[is_fac,'estimated_overpricing_pct']=0.0
-            used.loc[is_fac,'shift_calibration_source']='factory_fixed'
-            used.loc[is_fac,'price_shifted_pre_iso']=used.loc[is_fac,'factory_anchor_price']
-            used.loc[is_fac,'price_unshifted_monotonic']=used.loc[is_fac,'factory_anchor_price']
-            used.loc[is_fac,'shift_pre_isotonic_pct']=0.0
-            used.loc[is_fac,'publish_state']='FACTORY_ANCHORED'
-            used.loc[is_fac,'isotonic_warning']=False
-            used.loc[is_fac,'isotonic_block']=False
-            used.loc[is_fac,'isotonic_change_pct']=0.0
-        if len(factory_only):
-            ratio=math.sqrt(1.01)
-            factory_only['price_center']=factory_only.factory_anchor_price
-            factory_only['price_low']=factory_only.factory_anchor_price/ratio
-            factory_only['price_high']=factory_only.factory_anchor_price*ratio
-            factory_only['band_width_pct']=1.0
-            factory_only['shift_down_pct']=0.0
-            factory_only['center_shift_isotonic_spillover']=False
-            factory_only['center_adjustment_pct']=0.0
-            factory_only['center_adjustment_effective_pct']=0.0
-            factory_only['center_calibration_source']='factory_fixed'
-            factory_only['center_calibration_n_eff']=0.0
-            factory_only['center_calibration_weeks']=0
-            factory_only['interval_position']=.5
-            factory_only['interval_source']='factory_fixed'
-            factory_only['estimated_overpricing_pct']=0.0
-            factory_only['shift_calibration_n_eff']=0.0
-            factory_only['shift_calibration_weeks']=0
-            factory_only['shift_calibration_source']='factory_fixed'
-            factory_only['price_shifted_pre_iso']=factory_only['price_raw']
-            factory_only['price_unshifted_monotonic']=factory_only['price_raw']
-            factory_only['shift_pre_isotonic_pct']=0.0
-            factory_only['group_mape_shrunk_pct']=np.nan
-            factory_only['group_eval_n']=0
-            factory_only['isotonic_change_pct']=0.0
-            factory_only['isotonic_warning']=False
-            factory_only['isotonic_block']=False
-            factory_only['publish_state']=np.where(factory_only.factory_identity_status.eq('UNMATCHED_MODEL_ID'),'FACTORY_ID_UNMATCHED','FACTORY_ANCHORED')
-            used=pd.concat([used,factory_only],ignore_index=True,sort=False)
         used['surface_date']=asof
-        # Single source of truth for both used and factory surface rows.
+        # Single source of truth for ad-derived used-price surfaces.
         # This does NOT remove mismatched is_copy ads from model training.
         candidates_n = len(used)
         used = _keep_surface_identities(used, self._surface_original_by_id)
@@ -1230,12 +1041,10 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         if not (used.price_low.gt(0) & used.price_high.ge(used.price_center) &
                 used.price_center.ge(used.price_low)).all():
             raise AssertionError('All intervals must contain the center price')
-        fmask=used.is_factory.fillna(False)
-        if fmask.any() and not np.allclose(r[fmask],1.01,atol=1e-8):raise AssertionError('Factory band must be 1%')
         if used['center_adjustment_effective_pct'].abs().gt(self.config.center_max_adjust_pct+1e-3).any():
             raise AssertionError('Effective monotonic center correction exceeds 3pct')
-        log.info('[SURFACE] DONE rows=%s | factory=%s | warnings=%s | blocked=%s | violations_before=%s | elapsed=%.1fs',
-                 f'{len(used):,}',int(fmask.sum()),int(used.isotonic_warning.sum()),int(used.isotonic_block.sum()),viol,time.perf_counter()-started)
+        log.info('[SURFACE] DONE used=%s | warnings=%s | blocked=%s | violations_before=%s | elapsed=%.1fs',
+                 f'{len(used):,}',int(used.isotonic_warning.sum()),int(used.isotonic_block.sum()),viol,time.perf_counter()-started)
         return used
 
 
@@ -1290,7 +1099,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         test=z[z['asof'].eq(dt)]
         pred=np.exp(test.age_ref_log+model.predict(test[FEATURES_24]))
         ad_metrics=_metrics(test.price,pred)
-        grid=self.build_surface(asof=dt,residual_model=model,with_factory=False)
+        grid=self.build_surface(asof=dt,residual_model=model)
         future=self._future_cells(dt).query('future_n>=2').copy()
         columns=CELL+['price_raw','price_unshifted_monotonic','price_monotonic',
                       'price_center','price_low','price_high','band_width_pct',
@@ -1427,72 +1236,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         policy=self._new_reliability_policy().fit(past_cells,asof=dt)
         return policy.apply(t,asof=dt,publish_review=self.config.reliability_publish_review_tier_c).drop(columns=['_hist_age_n'])
 
-    def _new_v10_policy(self):
-        """One exact config contract shared by historical replay and final surface."""
-        return EvidenceFirstReliabilityV10(ReliabilityV10Config(
-            min_monthly_unique_ads=self.config.min_motorcycle_monthly_ads,
-            max_mdape_pct=self.config.quality_v10_max_mdape_pct,
-            max_mape_pct=self.config.quality_v10_max_mape_pct,
-            oof_min_cells=self.config.quality_v10_oof_min_cells,
-            max_oof_cells_for_market_fallback=self.config.quality_v10_max_sparse_oof_for_market,
-            min_oof_target_unique_ads=self.config.quality_v10_target_min_unique_ads,
-            min_oof_target_days=self.config.quality_v10_target_min_days,
-            max_oof_target_iqr_pct=self.config.quality_v10_target_max_iqr_pct,
-            max_oof_target_loo_shift_pct=self.config.quality_v10_target_max_loo_shift_pct,
-            min_market_exact_ads_for_fallback=self.config.quality_v10_market_min_ads,
-            min_market_days_for_fallback=self.config.quality_v10_market_min_days,
-            cell_overpricing_threshold_pct=self.config.quality_v10_local_over_pct,
-            cell_underpricing_threshold_pct=self.config.quality_v10_local_under_pct,
-            publish_market_provisional=self.config.quality_v10_publish_market_provisional,
-        ))
-
-    def _v10_fold_report(self, cells, forecast_origin):
-        """Evaluate the EXACT historical publishing choice, with *future* labels.
-
-        Selection has already happened using only data dated before origin.
-        Future observations are used solely to compute these metrics.
-        """
-        x=cells.copy()
-        pub=x['v10_fold_publication_allowed'].eq(True)
-        unique=pd.to_numeric(x.get('future_unique_ads'),errors='coerce')
-        days=pd.to_numeric(x.get('future_observed_days'),errors='coerce')
-        iqr=pd.to_numeric(x.get('future_iqr_pct'),errors='coerce')
-        # The filter is for reported evaluation quality; never the publish gate.
-        st=pd.to_numeric(x.get('future_loo_median_shift_pct'),errors='coerce')
-        high_target=(unique.ge(self.config.quality_v10_target_min_unique_ads)
-                     & days.ge(self.config.quality_v10_target_min_days)
-                     & iqr.between(0,self.config.quality_v10_target_max_iqr_pct)
-                     & st.le(self.config.quality_v10_target_max_loo_shift_pct))
-        y=pd.to_numeric(x.get('actual_independent'),errors='coerce')
-        pred=pd.to_numeric(x.price_center,errors='coerce')
-        valid=high_target&y.gt(0)&pred.gt(0)
-        def block(mask, label, target):
-            q=x.loc[mask].copy()
-            yy=pd.to_numeric(q[target],errors='coerce')
-            pp=pd.to_numeric(q.price_center,errors='coerce')
-            ok=yy.gt(0)&pp.gt(0)
-            q=q.loc[ok];yy=yy.loc[ok];pp=pp.loc[ok]
-            error=100*(pp/yy-1)
-            return {
-                f'{label}_n':int(len(q)),
-                f'{label}_models':int(q.motorcycle_model_id.nunique()),
-                f'{label}_mape_pct':float(error.abs().mean()) if len(q) else np.nan,
-                f'{label}_mdape_pct':float(error.abs().median()) if len(q) else np.nan,
-                f'{label}_signed_bias_pct':float(error.mean()) if len(q) else np.nan,
-                f'{label}_o10_pct':100*float(error.gt(10).mean()) if len(q) else np.nan,
-                f'{label}_u10_pct':100*float(error.lt(-10).mean()) if len(q) else np.nan,
-                f'{label}_interval_coverage_pct':100*float(yy.between(q.price_low,q.price_high).mean()) if len(q) else np.nan,
-            }
-        out={'v10_temporal_origin':str(pd.Timestamp(forecast_origin).date()),
-             'v10_temporal_all_oof_cells':len(x),
-             'v10_temporal_approved_oof_cells':int(pub.sum()),
-             'v10_temporal_quality_oof_cells':int(valid.sum()),
-             'v10_temporal_approved_quality_cells':int((pub&valid).sum())}
-        out.update(block(pub,'v10_selected_all','actual'))
-        out.update(block(pub&valid,'v10_selected_quality','actual_independent'))
-        out.update(block((~pub)&valid,'v10_held_quality','actual_independent'))
-        return out
-
     @staticmethod
     def _summarize_reliability(cells, keys):
         if cells is None or cells.empty:return pd.DataFrame()
@@ -1518,40 +1261,28 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         self._calibrate(pd.DataFrame())
         for i,dt in enumerate(dates):
             log.info('[BACKTEST] Fold %s/%s at %s',i+1,len(dates),dt.date())
-            if self.config.quality_v10_enabled:
-                r,c,fold_grid=self._backtest_single(dt,return_grid=True)
-            else:
-                r,c=self._backtest_single(dt)
+            r,c,fold_grid=self._backtest_single(dt,return_grid=True)
             earlier=pd.concat(cell_results,ignore_index=True) if cell_results else pd.DataFrame()
             c=self._attach_fold_reliability(c,earlier,dt)
-            if self.config.quality_v10_enabled:
-                # Temporal V10 gate: full historical grid + pre-origin ads +
-                # previously COMPLETED OOF only. Never select using this fold's
-                # future sample, labels or coordinates.
-                policy=self._new_v10_policy()
-                historic_gate=policy.apply(fold_grid,
-                    self.ads[self.ads.date.lt(dt)],earlier,asof=dt)
-                decision=(historic_gate[CELL+['publication_allowed','production_quality_state',
-                    'publication_evidence_tier','v10_overpricing_local_block',
-                    'v10_underpricing_local_block']].rename(columns={
-                    'publication_allowed':'v10_fold_publication_allowed',
-                    'production_quality_state':'v10_fold_quality_state',
-                    'publication_evidence_tier':'v10_fold_evidence_lane',
-                    'v10_overpricing_local_block':'v10_fold_over_block',
-                    'v10_underpricing_local_block':'v10_fold_under_block'}))
-                c=c.merge(decision,on=CELL,how='left',validate='many_to_one')
-                if c.v10_fold_publication_allowed.isna().any():
-                    raise AssertionError('OOF future cell missing from historical full-grid V10 gate')
-                r.update(self._v10_fold_report(c,dt))
-                r['v10_gate_eligible_oof_models']=int(c.loc[c.v10_fold_publication_allowed,
-                        'motorcycle_model_id'].nunique())
-                r['v10_gate_full_grid_approved']=int(historic_gate.publication_allowed.sum())
-                r['v10_gate_target_completed_past']=int(policy.oof_quality_report.get('completed_cells',0))
-                r['v10_gate_target_qualified_past']=int(policy.oof_quality_report.get('qualified_cells',0))
-            # The historical publication summary uses V10 decisions when V10 is
-            # enabled; legacy per-tier flags remain separately available on c.
-            chosen=(c.loc[c.v10_fold_publication_allowed]
-                    if self.config.quality_v10_enabled else c.loc[c.is_reliable])
+            # OOF gate is decided BEFORE joining any targets from this fold.
+            # Folds without two completed independent histories remain unapproved.
+            # This is audit-only and never sees the current fold's targets.
+            if earlier.empty:
+                decisions = fold_grid[CELL].copy()
+                decisions['fold_publication_allowed'] = False
+            else:
+                historic_gate = apply_publication(fold_grid, dt, earlier, PublicationConfig())
+                decisions = (historic_gate[CELL + ['publication_allowed']]
+                    .rename(columns={'publication_allowed':'fold_publication_allowed'}))
+            # Fold grid normalizes is_copy into int8 inside the strict policy;
+            # the original cell frame uses a string CatBoost category.
+            # Only normalize the decision keys (leave core calibration keys intact).
+            for name in ('motorcycle_model_id','real_brand','real_model','model_variant','is_copy'):
+                decisions[name]=decisions[name].astype(str)
+            c=c.merge(decisions,on=CELL,how='left',validate='many_to_one')
+            if c.fold_publication_allowed.isna().any():
+                raise AssertionError('OOF cell missing historical publication decision')
+            chosen=c.loc[c.fold_publication_allowed]
             r['reliability_auto_cells']=len(chosen)
             r['reliability_auto_coverage_pct']=100*float(chosen.actual.between(chosen.price_low,chosen.price_high).mean()) if len(chosen) else np.nan
             r['reliability_auto_mape_pct']=float((100*(chosen.price_center/chosen.actual-1).abs()).mean()) if len(chosen) else np.nan
@@ -1609,8 +1340,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         """
         grid = surface.copy()
         hist = self.ads[self.ads.date.lt(self.asof)].copy()
-        fac = self.factory[self.factory.date.lt(self.asof)].copy()
-        source = pd.concat([hist, fac], ignore_index=True, sort=False)
+        source = hist
         if 'production_year' not in source:
             grid['production_year'] = np.nan
             grid['production_year_source'] = 'missing'
@@ -1644,8 +1374,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
     def _build_model_index_history(self, surface: pd.DataFrame) -> pd.DataFrame:
         """Legacy history view, populated without in-sample price evaluation.
 
-        Normalize nullable factory IDs BEFORE grouping or joining history.
-        This avoids a second group for NaN vs 'UNKNOWN'.
+        Normalize IDs before grouping or joining history.
         """
         surface = surface.copy()
         surface['motorcycle_model_id'] = (
@@ -1662,19 +1391,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             price_p50=('price', 'median'),
             price_p90=('price', lambda v: v.quantile(.90)),
         )
-        # Include factory-only identities (otherwise a valid zero-km surface cannot be persisted).
-        fac = surface[surface.is_factory.eq(True)]
-        if len(fac):
-            fac_stats = fac[GROUP + ['factory_anchor_price']].drop_duplicates(GROUP)
-            fac_stats = fac_stats.rename(columns={'factory_anchor_price': '_factory_price'})
-            stats = stats.merge(fac_stats, on=GROUP, how='outer', validate='one_to_one')
-            for pct in ('price_p10', 'price_p50', 'price_p90'):
-                stats[pct] = stats[pct].fillna(stats._factory_price)
-            stats['total_samples'] = stats.total_samples.fillna(0).astype(int)
-            stats['samples_last_month'] = stats.samples_last_month.fillna(0).astype(int)
-            stats = stats.drop(columns=['_factory_price'])
-        # ModelIndexHistory must contain published surface groups only,
-        # including factory-only groups, never rejected is_copy combinations.
+        # ModelIndexHistory includes only surfaced ad-derived groups.
         stats = stats.merge(surface[GROUP].drop_duplicates(), on=GROUP,
                             how='inner', validate='one_to_one')
         if stats.empty:
@@ -1705,7 +1422,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         stats['tested_samples'] = stats.tested_samples.fillna(0).astype(int)
         # No candidate samples = unknown accuracy, not zero error/zero coverage.
 
-        shifts = surface[~surface.is_factory.fillna(False)].groupby(GROUP, as_index=False, dropna=False).agg(
+        shifts = surface.groupby(GROUP, as_index=False, dropna=False).agg(
             optimal_shift=('shift_down_pct', lambda x: -float(x.mean()) if len(x) else 0.))
         stats = stats.merge(shifts, on=GROUP, how='left', validate='one_to_one')
         stats['optimal_shift'] = stats.optimal_shift.fillna(0.)
@@ -1739,7 +1456,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
 
         # The policy is applied after the authoritative ID/copy surface gate.
         # At this point, each GROUP contains all economically permitted coordinates.
-        factory = g['is_factory'].fillna(False).astype(bool)
         age = pd.to_numeric(g['age'], errors='coerce')
         maxage = pd.to_numeric(g['max_age'], errors='coerce')
         minage = pd.to_numeric(g['min_age'], errors='coerce')
@@ -1748,7 +1464,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                       | ~np.isfinite(iso))
         # Age 0 and the right-hand boundary are deliberately exempt. A young
         # age below the youngest observed age is extrapolation, not interpolation.
-        interior = ((~factory) & age.gt(0) & age.ge(minage)
+        interior = (age.gt(0) & age.ge(minage)
                     & age.lt(maxage)
                     & age.le(self.config.completion_priority_max_age))
         prevalidated = (g['reliability_tier'].isin(['A', 'B', 'C'])
@@ -1833,7 +1549,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                  int((interior & g['reliability_tier'].eq('D')).sum()))
         return g
 
-    def create_surface(self, segment_metrics=None, asof=None, with_factory=True, debug=False) -> pd.DataFrame:
+    def create_surface(self, segment_metrics=None, asof=None, debug=False) -> pd.DataFrame:
         """Return compact DataFrame by default; debug=True provides all features.
 
         Database persistence uses the full internal frame; compact results never
@@ -1843,10 +1559,8 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             log.warning('segment_metrics ignored: calibration is derived from causal backtest')
         if asof is not None and pd.Timestamp(asof).normalize()!=self.asof:
             raise ValueError('Only fitted asof supported; rerun fit for another origin')
-        result=self.build_surface(asof=self.asof,with_factory=with_factory)
-        # Normalize IDs before ANY downstream GROUP merge/groupby. Factory-only
-        # cells can carry NaN while upstream categorical keys use 'UNKNOWN'.
-        # Both represent the same missing motorcycle_model_id identity.
+        result=self.build_surface(asof=self.asof)
+        # Normalize IDs before downstream GROUP merges and grouping.
         result['motorcycle_model_id'] = (
             pd.to_numeric(result['motorcycle_model_id'], errors='coerce')
             .astype('Int64').astype(str).replace('<NA>', 'UNKNOWN')
@@ -1888,18 +1602,25 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                  int(result.loc[result.coverage_full_to_age6, GROUP].drop_duplicates().shape[0]),
                  self.config.coverage_publication_mode)
 
-        # V10 final publication: two-threshold motor-level quality gate with
-        # separate strongly corroborated LOCAL overpricing rejection. This does
-        # not refit models or alter any surface prices and preserves Tier D.
-        if self.config.quality_v10_enabled:
-            self._quality_v10_policy = self._new_v10_policy()
-            result = self._quality_v10_policy.apply(result, self.ads,
-                self.backtest_cells, asof=self.asof)
-            self._quality_v10_models = self._quality_v10_policy.model_report.copy()
+        # Sole, fail-closed publication authority; no V10/V13/V14/V15 fallback.
+        result=apply_publication(result, self.asof, self.backtest_cells,
+                                 PublicationConfig())
+        # Post-prediction check against USED ads available before the run date.
+        # Stage 1 age reference is already included in price_center for cells
+        # without exact listings; no factory data or future ads are consulted.
+        result=apply_recent_market_guard(result, self.ads, self.asof)
+        result['is_reliable']=result['publication_allowed'].astype(bool)
+        if result['is_factory'].any():
+            raise AssertionError('Factory price leaked into used-price surface')
+        if not result['policy_version'].eq(POLICY_VERSION).all():
+            raise AssertionError('Publication policy version mismatch')
+        log.info('[PUBLICATION RISK_GUARD] approved=%s/%s | motor ids=%s',
+                 int(result.publication_allowed.sum()), len(result),
+                 int(result.loc[result.publication_allowed,'motorcycle_model_id'].nunique()))
+
         # Preserve ALL constructed prices, including unobserved D cells.
         # Publication approval is separate from tier; D is not promoted to C.
         # Sparse models stay in the full grid for review, but are not published.
-        # Factory quotations remain separate and bypass the used-ad minimum.
         blocked = int((~result['publication_allowed']).sum())
         log.info('[PUBLICATION] retained full %s-cell grid; approved=%s blocked=%s',
                  f'{len(result):,}',int(result.publication_allowed.sum()),blocked)
@@ -1926,16 +1647,12 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
               'price_shifted_pre_iso','shift_pre_isotonic_pct',
               'price_unshifted_monotonic','group_mape_shrunk_pct','group_eval_n',
               'n30','local_cell_n','age_source','km_origin','publish_state',
-              'is_factory','factory_anchor_price','factory_identity_status',
+              'is_factory',
               'isotonic_change_pct','isotonic_warning','isotonic_block','surface_date',
-              'is_reliable','publication_allowed','prediction_validated','prediction_quality_status',
+              'is_reliable','publication_allowed','publication_status','publication_reason_code',
+              'policy_version','oof_n','oof_weeks','oof_median_abs_pct','oof_over15','oof_under15','publication_evidence_source',
+              'prediction_validated','prediction_quality_status',
               'quality_expansion_lane','publication_evidence_tier','quality_market_matched_ads',
-              'v10_evidence_lane','v10_oof_cells','v10_oof_weeks',
-              'v10_oof_mdape','v10_oof_mape','v10_market_month_ads',
-              'v10_market_matched_ads','v10_market_mdape','v10_market_mape',
-              'v10_cell_market_ads','v10_cell_market_over_pct',
-              'v10_overpricing_local_block','v10_underpricing_local_block',
-              'v10_directional_risk_source','v10_sparse_oof_disagreement',
               'quality_model_status','production_quality_state','quality_oof_n',
               'quality_oof_weeks','quality_oof_ages','quality_oof_mdape_pct',
               'quality_oof_mape_pct','quality_oof_robust_mape_pct','quality_oof_signed_median_pct',
@@ -1966,14 +1683,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         return None if self._surface_df is None else self._surface_df.copy()
 
     @property
-    def v10_temporal_validation_report(self):
-        """Walk-forward publication performance, NEVER fitted on same-fold labels."""
-        if self.backtest_results is None or self.backtest_results.empty:
-            return pd.DataFrame()
-        return self.backtest_results[[c for c in self.backtest_results.columns
-                                      if c.startswith('v10_')]].copy()
-
-    @property
     def production_surface(self):
         """Only approved price rows, without modifying the full surface grid."""
         if self._surface_df is None:return None
@@ -1983,11 +1692,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
     def model_quality_report(self):
         """One row per PARENT with OOF and recent-market diagnostics."""
         if self._surface_df is None:return pd.DataFrame()
-        if self.config.quality_v10_enabled and not self._quality_v10_models.empty:
-            counts = self._surface_df.groupby(PARENT, dropna=False, as_index=False).agg(
-                total_surface_cells=('publication_allowed','size'),
-                approved_surface_cells=('publication_allowed','sum'))
-            return counts.merge(self._quality_v10_models,on=PARENT,how='left',validate='one_to_one')
         if self.reliability_policy is None:return pd.DataFrame()
         base=self._surface_df.groupby(PARENT,dropna=False,as_index=False).agg(
             total_surface_cells=('publication_allowed','size'),

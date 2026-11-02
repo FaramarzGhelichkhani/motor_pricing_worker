@@ -15,13 +15,9 @@ from ml_engine.copy_label_cleaning import (
     _correct_is_copy_labels,
 )
 
-from ml_engine.variant_labeling_v2 import (
-    _add_model_variant,
-    _set_model_variant,
-)
+from ml_engine.variant_labeling_v2 import _add_model_variant
 # --- Constants ---
 
-CURRENT_MARKET_YEAR = jdatetime.date.today().year
 EXPECTED_KM_PER_YEAR = 7000
 CONFIRMED_WEIGHT_MULTIPLIER = 1.8
 
@@ -138,7 +134,6 @@ def _segment_motorcycles(df):
     
     return df
 
-
 def _add_mileage_features(df, mileage_col="mileage", age_col="age", brand_col="real_brand", model_col="real_model", min_group_count=30):
     """
     Add mileage-related features without removing any rows.
@@ -208,16 +203,26 @@ def _add_mileage_features(df, mileage_col="mileage", age_col="age", brand_col="r
     return df
 
 class DataPreprocessor:
-    def __init__(self, raw_df: pd.DataFrame, zero_df: pd.DataFrame = None,
+    def __init__(self, raw_df: pd.DataFrame, *, asof=None,
                  enable_baseline: bool = False):
-        """Preprocess without Audit or asof-dependent labeling.
+        """Ads-only preprocessing for daily causal price surfaces.
 
-        Existing copy/variant and sequential-IQR algorithms are preserved.
-        Price baseline generation is optional (OFF by default).
+        `asof` is the start of the forecast date (Gregorian, exclusive).
+        Data dated on/after asof is excluded *before* learning price references,
+        variant registries, group imputations or outlier limits.
+        Factory rows are never consumed. Pass asof explicitly for daily jobs.
         """
-        self.df = raw_df.copy()
-        self.today = dt.date.today()
-        self.zero_df = zero_df.copy() if zero_df is not None else None
+        if not isinstance(raw_df, pd.DataFrame):
+            raise TypeError('raw_df must be a pandas DataFrame')
+        self.asof = pd.Timestamp(asof).normalize() if asof is not None else None
+        if self.asof is not None and pd.isna(self.asof):
+            raise ValueError('Invalid asof')
+        self.today = self.asof.date() if self.asof is not None else dt.date.today()
+        df = raw_df.copy()
+        if 'source' in df.columns:
+            ads = df['source'].astype('string').str.strip().str.lower().eq('ads').fillna(False)
+            df = df.loc[ads].copy()
+        self.df = df
         self.enable_baseline = bool(enable_baseline)
 
     def _impute_missing_values(self):
@@ -301,36 +306,21 @@ class DataPreprocessor:
 
         return self
 
-    def _clean_prepare_zero_df(self):
-            self.zero_df['date'] = self.zero_df['jalali_date'].apply(_convert_jalali_to_greg)
-            self.zero_df['date'] = self.zero_df['date'].fillna(pd.to_datetime(self.zero_df['insert_date']).dt.normalize())
-            self.zero_df.loc[(self.zero_df.motor_class == 'کبیر موتور'),'brand_name'] = 'Kabir'
-            zero_source = self.zero_df[['brand_name', 'model_name', 'date', 'price', 'raw_title', 'motor_class']].copy()
-            zero_source.rename(columns={'brand_name': 'real_brand', 'model_name': 'real_model',\
-                                         'raw_title':"title", 'motor_class':'model_variant'}, inplace=True)
-            zero_source["mileage"] = 0 
-            zero_source["mileage_bucket"] = 0 
-            zero_source["age"] = 0
-            zero_source["production_year"] = CURRENT_MARKET_YEAR
-            # zero_source = _set_model_variant(zero_source, text_col='model_variant')
-            # zero_source["model_variant"] = zero_source["model_variant"].fillna('DEFAULT')
-            zero_source["is_copy"] = np.where(zero_source["real_brand"].str.strip().isin(IRANIAN_BRANDS), 1 , 0)
-            zero_source["is_original"] = np.where(zero_source["real_brand"].str.strip().isin(IRANIAN_BRANDS), 0 , 1)
-            zero_source["label_weight"] = 1.5
-            zero_source["condition_tier"] = 1
-            zero_source["source"] = "factory"
-        
-            zero_source = _segment_motorcycles(zero_source)
-    
-            return zero_source
-    
     def clean_and_prepare(self) -> pd.DataFrame:
         if self.df.empty: return self.df
 
         # --- 1. فیلترهای پایه ---
         # فقط آگهی‌های معتبر و پردازش شده را نگه می‌داریم
         self.df = self.df[(self.df['is_valid_ad'] == 1) & (self.df['status'] == 'PROCESSED_OK')].copy()
-    
+
+        # Date must be parsed BEFORE building any cross-row statistics.
+        self.df['date'] = self.df['publish_date'].apply(_convert_jalali_to_greg)
+        self.df = self.df.loc[self.df['date'].notna()].copy()
+        if self.asof is not None:
+            self.df = self.df.loc[self.df['date'].lt(self.asof)].copy()
+        if self.df.empty:
+            return self.df
+
         self.df = self.df.dropna(subset=["price", "real_brand", "real_model", "production_year", "mileage"]).copy()
         self.df = self.df[(self.df["price"] > 0) & (self.df["mileage"] >= 0) & (self.df["production_year"] >= 1390)].copy()
 
@@ -341,8 +331,6 @@ class DataPreprocessor:
 
         self._impute_missing_values()
 
-        self.df['date'] = self.df['publish_date'].apply(_convert_jalali_to_greg)
-        self.df = self.df.dropna(subset=['date']).copy()
         self.df['publish_year'] = self.df['publish_date'].str.split('-').str[0].astype(int)
         self.df["color"] = self.df["color"].fillna("unknown").apply(_surface_color_bucket)
 
@@ -370,50 +358,12 @@ class DataPreprocessor:
         self.df  = _correct_is_copy_labels(self.df ,price_reference=price_reference)
         # Keep the existing specialized variant labeling exactly as implemented.
         # No asof, weekly refitting, or second variant-recovery system.
-        self.df, registry = _add_model_variant(self.df, return_registry=True)
+        self.df, _ = _add_model_variant(self.df, return_registry=True)
 
         self.df = _sequential_outlier_removal(self.df)
         self.df = _build_condition_features(self.df)
 
-        if self.zero_df is not None:
-            cleaned_zero_df = self._clean_prepare_zero_df()
-            cleaned_zero_df = _set_model_variant(cleaned_zero_df,registry=registry,)
-            return pd.concat([self.df, cleaned_zero_df])
-
         return self.df
-
-    @staticmethod
-    def _fill_factory_model_ids_only(data: pd.DataFrame) -> pd.DataFrame:
-        """Only factory rows may inherit a missing model ID from known ads.
-
-        Keep the previous (real_brand, real_model) lookup semantics. Never
-        infer/fill IDs for used ads: those can represent unregistered models.
-        """
-        if data.empty or 'motorcycle_model_id' not in data:
-            return data
-        factory = data['source'].eq('factory')
-        missing_factory = factory & data['motorcycle_model_id'].isna()
-        if not missing_factory.any():
-            return data
-        known_ads = data.loc[
-            data['source'].eq('ads') & data['motorcycle_model_id'].notna(),
-            ['real_brand', 'real_model', 'motorcycle_model_id'],
-        ]
-        if known_ads.empty:
-            return data
-        # Equivalent to the original group-wise first non-null ID, except that
-        # factory rows alone are fill targets and factory IDs are not references.
-        lookup = known_ads.groupby(['real_brand', 'real_model'], dropna=False)[
-            'motorcycle_model_id'
-        ].first()
-        # Positional vectorization also handles duplicate indices from concat(ads, factory).
-        keys = pd.MultiIndex.from_frame(data[['real_brand', 'real_model']])
-        resolved = pd.Series(lookup.reindex(keys).to_numpy(), index=data.index)
-        data = data.copy()
-        data['motorcycle_model_id'] = data['motorcycle_model_id'].where(
-            ~missing_factory, resolved
-        )
-        return data
 
     def enrich_feature(self, enable_baseline: Optional[bool] = None) -> pd.DataFrame:
         """Return clean training data; optionally add expensive baseline profiles.
@@ -424,7 +374,6 @@ class DataPreprocessor:
         cleaned_combined_df = self.clean_and_prepare()
         if cleaned_combined_df.empty:
             return cleaned_combined_df
-        cleaned_combined_df = self._fill_factory_model_ids_only(cleaned_combined_df)
         cleaned_combined_df = _add_mileage_features(cleaned_combined_df)
 
         if enable_baseline is None:

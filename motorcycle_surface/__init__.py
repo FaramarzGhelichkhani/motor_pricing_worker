@@ -1,15 +1,7 @@
-"""Motorcycle price surface package.
+"""USED motorcycle price surfaces. Only Publication Policy V15 is active.
 
-Public entry point: MotorcyclePriceSurface.fit(df).create_surface().
-
-V10 is the single, final reliability/publication gate. There is no V8/V9
-hierarchical reliability layer anymore: it was dead weight because V10's
-`apply()` unconditionally recomputed `is_reliable` / `publication_allowed`
-and made every earlier decision irrelevant. Tier A/B/C/D labels are now
-derived directly from V10 evidence for display/debugging only; they never
-gate publication by themselves.
+Factory data is excluded before feature generation, modeling and publication.
 """
 from .core import MotorcyclePriceSurface, SurfaceConfig, FEATURES_24, GROUP, CELL
-
-__all__ = ["MotorcyclePriceSurface", "SurfaceConfig", "FEATURES_24", "GROUP", "CELL"]
-__version__ = "11.0.0"
+__all__ = ['MotorcyclePriceSurface','SurfaceConfig','FEATURES_24','GROUP','CELL']
+__version__ = '15.0.0'

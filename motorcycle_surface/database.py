@@ -206,13 +206,19 @@ class SurfaceDatabaseMixin:
             raise RuntimeError("Run fit() and create_surface() before database persistence")
         s = self._surface_df.copy()
         h = self._model_index_history_data.copy()
+        if 'is_factory' in s and s['is_factory'].map(_bool).any():
+            raise ValueError('Factory data must be stored in its own table, never PriceSurface')
         s["_gid"] = s.apply(_identity, axis=1)
         h["_gid"] = h.apply(_identity, axis=1)
         if target == "production":
+            if not s['policy_version'].eq('USED_RELEASE_FINAL_1').all():
+                raise ValueError('Production requires USED_RELEASE_FINAL_1 decisions for every row')
+            if s['is_factory'].map(_bool).any():
+                raise ValueError('Factory rows must not be persisted to PriceSurface')
+            if not (s['is_reliable'].map(_bool) == s['publication_allowed'].map(_bool)).all():
+                raise ValueError('Inconsistent publication flags')
             reliable = s["is_reliable"].map(_bool)
             s = s.loc[reliable].copy()
-            if "isotonic_block" in s:
-                s = s.loc[~s["isotonic_block"].map(_bool) | s["is_factory"].map(_bool)].copy()
             ids = s["motorcycle_model_id"].map(_mid)
             years = pd.to_numeric(s["production_year"], errors="coerce")
             s = s.loc[ids.notna() & years.between(1300, 1600) & years.mod(1).eq(0)].copy()
@@ -289,7 +295,35 @@ class SurfaceDatabaseMixin:
             return None
         t0 = time.perf_counter()
         history_df, surface_df = self._prepare_frames(target)
+        # Even a fully rejected model needs its old production prices removed.
+        # Only operate on identities examined in this run, never truncate the DB.
+        processed_ids = []
+        if target == 'production':
+            original=self._surface_df.copy()
+            processed_ids=sorted({_mid(v) for v in original.motorcycle_model_id if _mid(v) is not None})
         if surface_df.empty:
+            if target == 'production':
+                # Explicit zero-approval release is an empty active catalog.
+                # Never silently retain previously approved prices.
+                try:
+                    conn=db.connection()
+                    deleted=conn.exec_driver_sql(f"DELETE FROM {SURFACE_NAME}").rowcount
+                    db.commit()
+                    return {"target":target,"history_count":0,"deleted":max(deleted,0),"inserted":0}
+                except Exception:
+                    db.rollback()
+                    raise
+            if processed_ids:
+                from sqlalchemy import bindparam
+                try:
+                    conn=db.connection()
+                    statement=text(f"DELETE FROM {SURFACE_NAME} WHERE motorcycle_model_id IN :ids").bindparams(bindparam('ids',expanding=True))
+                    deleted=conn.execute(statement,{'ids':processed_ids}).rowcount
+                    db.commit()
+                    return {"target":target,"history_count":0,"deleted":max(deleted,0),"inserted":0}
+                except Exception:
+                    db.rollback()
+                    raise
             log.info("[DB][%s] No target cells: no DELETE, no writes", target)
             return {"target": target, "history_count": 0, "deleted": 0, "inserted": 0}
         history_records = self._history_records(target, history_df, surface_df)
@@ -326,10 +360,20 @@ class SurfaceDatabaseMixin:
             absent = conn.execute(text(f"SELECT count(*) FROM _mps_surface_stage st LEFT JOIN {HISTORY_NAME} h ON {matched} WHERE h.id IS NULL"), {"asof": self.today}).scalar_one()
             if absent:
                 raise ValueError(f"{target}: {absent} surfaces lack matching history snapshots")
-            deleted = conn.exec_driver_sql(
-                f"DELETE FROM {SURFACE_NAME} p WHERE p.motorcycle_model_id IN "
-                "(SELECT DISTINCT motorcycle_model_id FROM _mps_surface_stage WHERE motorcycle_model_id IS NOT NULL)"
-            ).rowcount
+            if target == 'production':
+                # Table is dedicated to published USED price surfaces.
+                # A COMPLETE daily release atomically replaces ALL active rows,
+                # including models absent from the new input (prevent stale prices).
+                deleted=conn.exec_driver_sql(f"DELETE FROM {SURFACE_NAME}").rowcount
+            elif processed_ids:
+                from sqlalchemy import bindparam
+                statement=text(f"DELETE FROM {SURFACE_NAME} WHERE motorcycle_model_id IN :ids").bindparams(bindparam('ids',expanding=True))
+                deleted=conn.execute(statement,{'ids':processed_ids}).rowcount
+            else:
+                deleted=conn.exec_driver_sql(
+                    f"DELETE FROM {SURFACE_NAME} p WHERE p.motorcycle_model_id IN "
+                    "(SELECT DISTINCT motorcycle_model_id FROM _mps_surface_stage WHERE motorcycle_model_id IS NOT NULL)"
+                ).rowcount
             if target == "crawler":
                 deleted += conn.exec_driver_sql(
                     f"DELETE FROM {SURFACE_NAME} p USING {HISTORY_NAME} oldh "
