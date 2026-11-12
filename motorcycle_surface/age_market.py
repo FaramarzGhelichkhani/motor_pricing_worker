@@ -1,9 +1,8 @@
-"""Strictly past-only hierarchical age-market curve.
+"""Past-only age-market reference and direct adjacent-year rate reconstruction.
 
-Unchanged from the previous version: this module builds the age/market
-reference curve from historical ads only, with optional one-year parent
-boundary extension. It is independent of the reliability/publication layer,
-so no V10-related changes were needed here.
+AgeMarketBuilder keeps the existing historical price anchor unchanged.
+AgeRatePredictor integrates CatBoost-predicted age-to-age log-price ratios
+and anchors the reconstructed curve using ONLY past market support.
 """
 import numpy as np
 import pandas as pd
@@ -160,3 +159,63 @@ class AgeMarketBuilder:
         z['asof'] = cutoff
         return z
     
+
+class AgeRatePredictor:
+    """Adapter implementing the same ``predict(frame)`` API as CatBoost.
+
+    CatBoost itself predicts supervised log(P_age / P_age+1), NOT the per-age
+    correction. This adapter reconstructs a coherent log-price curve for
+    each motorcycle/variant; returned values are corrections relative to
+    the historical age reference, preserving ``core.py``'s data contract.
+
+    No future medians, actual prices, or current-week labels are used here.
+    This is the direct-rate implementation selected in reduced-iteration
+    experiments; it does not force a minimum depreciation percentage.
+    """
+
+    def __init__(self, model, feature_columns):
+        self.model = model
+        self.feature_columns = list(feature_columns)
+
+    def predict(self, frame):
+        frame = frame.reset_index(drop=True).copy()
+        predicted = np.asarray(
+            self.model.predict(frame[self.feature_columns]), dtype=float
+        )
+        # Keep the same caps and mixing as the evaluated direct-rate candidate.
+        predicted = np.clip(predicted, -0.035, 0.22)
+        correction = np.zeros(len(frame), dtype=float)
+
+        # Grouping MUST include company identity, copy flag and model variant.
+        for _, sub in frame.groupby(GROUP, sort=False, dropna=False):
+            indices = sub.index.to_numpy()
+            ages = sub.age.to_numpy(dtype=int)
+            order = np.argsort(ages)
+            ii = indices[order]
+            sorted_ages = ages[order]
+            historic = frame.loc[ii, 'curve_hist'].to_numpy(float)
+            if len(ii) < 2 or not np.isfinite(historic).all():
+                continue
+            n120 = frame.loc[ii, 'n120'].to_numpy(float)
+            n30 = frame.loc[ii, 'n30'].to_numpy(float)
+
+            # Gradient is learned where there is little direct age support;
+            # for well-supported years, preserve more of the historical slope.
+            ratios = predicted[ii[:-1]]
+            local = np.minimum(n120[:-1], n120[1:])
+            strength = np.clip(0.82 - 0.33 * (local / (local + 12)), 0.49, 0.82)
+            steps = np.maximum(np.diff(sorted_ages), 1)
+            historic_rate = (historic[:-1] - historic[1:]) / steps
+            annual = np.clip(
+                (1 - strength) * historic_rate + strength * ratios,
+                -0.03, 0.22,
+            )
+
+            # Integrate annual log-price differences across the age grid.
+            cumulative = np.r_[0, -np.cumsum(annual * np.diff(sorted_ages))]
+            # The level comes ONLY from past data, not future target prices.
+            wt = np.clip(n120, 0, 30) + 2 + np.minimum(n30, 5)
+            center = float(np.average(historic - cumulative, weights=wt))
+            updated = cumulative + center
+            correction[ii] = updated - historic
+        return correction

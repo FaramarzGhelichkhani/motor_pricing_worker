@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_1'
+POLICY_VERSION = 'USED_RELEASE_FINAL_1_AGE_PLATEAU_GUARD_CANDIDATE'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -38,6 +38,10 @@ class PublicationConfig:
     min_future_ads: int = 3
     min_future_days: int = 2
     max_future_iqr_pct: float = 20.0
+    age_plateau_guard_enabled: bool = True
+    age_plateau_max_age: int = 3
+    age_plateau_n120_min: int = 20
+    age_plateau_n30_min: int = 5
 
 
 def _norm(df):
@@ -139,6 +143,75 @@ def confirmed_20pct_curves(history, asof, cfg: PublicationConfig):
     return set(map(tuple, recurring[CURVE].itertuples(index=False, name=None)))
 
 
+
+"""Research candidate: suppress weakly evidenced *young* ages within age plateaus.
+Uses the public data contract from production publication_policy.py; no web, no future leakage.
+"""
+import numpy as np,pandas as pd
+
+
+"""Research candidate: suppress weakly evidenced *young* ages within age plateaus.
+Uses the public data contract from production publication_policy.py; no web, no future leakage.
+"""
+import numpy as np,pandas as pd
+
+
+def unsupported_young_plateau_curves(d,history,asof,*, max_age=3,price_rtol=.001,
+                                     min_matching_buckets=3,min_pair_tie_share=.90,
+                                     n120_min=20,n30_min=5):
+    required=set(CELL+['price_center','n120','n30','publication_allowed'])
+    miss=required-set(d.columns)
+    if miss:raise ValueError(f'Young-age plateau gate requires {sorted(miss)}')
+    live=d[d.publication_allowed.astype(bool)].copy()
+    if live.empty:return set()
+    young=live[(live.age>=1)&(live.age<=max_age+1)].copy()
+    pair=young[CELL+['price_center']].copy()
+    pair['age']-=1
+    pair=young.merge(pair.rename(columns={'price_center':'older_price'}),on=CELL,how='inner',validate='one_to_one')
+    pair=pair[(pair.age>=1)&(pair.age<=max_age)]
+    if pair.empty:return set()
+    pair['_near_equal']=((pair['price_center']/pair['older_price']-1).abs()<=price_rtol)
+    key=GROUP+['condition_tier','age']
+    summary=pair.groupby(key,dropna=False,sort=False)['_near_equal'].agg(['sum','count']).reset_index()
+    suspect=summary[(summary['count']>=min_matching_buckets)&(summary['sum']/summary['count']>=min_pair_tie_share)]
+    keys=set()
+    for row in suspect.itertuples(index=False):
+        group_values=[getattr(row,c) for c in GROUP]
+        keys.add(tuple(group_values+[int(row.age),int(row.condition_tier)]))
+        keys.add(tuple(group_values+[int(row.age)+1,int(row.condition_tier)]))
+    if not keys:return set()
+    young_curves=live[live.age.between(1,max_age)].groupby(CURVE,dropna=False).agg(n120=('n120','median'),n30=('n30','median')).reset_index()
+    weak=young_curves[(young_curves.n120<n120_min)&(young_curves.n30<n30_min)]
+    candidates=set(map(tuple,weak[CURVE].itertuples(index=False,name=None))) & keys
+    if not candidates:return set()
+    # If this exact age/condition has independent stable evidence in >=2
+    # completed weekly origins, keep it despite weak recent support.
+    certified=set()
+    if history is not None and len(history):
+        needed=set(CURVE+['asof','price_center','actual_independent',
+                         'future_unique_ads','future_observed_days','future_iqr_pct'])
+        if not needed.issubset(history.columns):
+            raise ValueError('Missing exact-age OOF fields in history for plateau guard')
+        hist=_norm(history)
+        hist['_origin']=pd.to_datetime(hist['asof'],errors='coerce').dt.normalize()
+        cutoff=pd.Timestamp(asof).normalize()-pd.Timedelta(days=7)
+        hist=hist[hist['_origin'].notna()&hist['_origin'].le(cutoff)].copy()
+        for c in ['price_center','actual_independent','future_unique_ads','future_observed_days','future_iqr_pct']:
+            hist[c]=pd.to_numeric(hist[c],errors='coerce')
+        hist=hist[hist.price_center.gt(0)&hist.actual_independent.gt(0)&
+                  hist.future_unique_ads.ge(3)&hist.future_observed_days.ge(2)&
+                  hist.future_iqr_pct.between(0,20)].copy()
+        if not hist.empty:
+            hist=hist.drop_duplicates(['_origin']+CELL)
+            hist['_ape']=100*(hist.price_center/hist.actual_independent-1).abs()
+            ev=hist.groupby(CURVE,dropna=False).agg(
+                n=('_ape','size'),weeks=('_origin','nunique'),
+                mdape=('_ape','median'),max_ape=('_ape','max')).reset_index()
+            cert=ev[(ev.n>=3)&(ev.weeks>=2)&(ev.mdape<=8)&(ev.max_ape<=20)]
+            certified=set(map(tuple,cert[CURVE].itertuples(index=False,name=None)))
+    return candidates-certified
+
+
 def apply_publication(surface, asof, history, cfg: PublicationConfig = PublicationConfig()):
     if surface is None or surface.empty:
         raise ValueError('Cannot publish an empty price grid')
@@ -210,6 +283,20 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
         ['HOLD_INVALID_CURVE','HOLD_INCOMPLETE_CURVE','HOLD_OOF_SEVERE','HOLD_CONFIRMED_OVER_UNDER_20',
          'HOLD_WEAK_MODEL_MARKET','HOLD_WEAK_VARIANT_MARKET'],
         default='PUBLISH_OOF_CHECKED')
+    # Age plateaus are suspicious only where the exact young-age curve has
+    # little historical support and no independent completed-age OOF proof.
+    d['age_plateau_held'] = False
+    if cfg.age_plateau_guard_enabled:
+        plateau_held = unsupported_young_plateau_curves(
+            d, history, asof,
+            max_age=cfg.age_plateau_max_age,
+            n120_min=cfg.age_plateau_n120_min,
+            n30_min=cfg.age_plateau_n30_min,
+        )
+        held = curvekey.isin(plateau_held)
+        d.loc[held, 'age_plateau_held'] = True
+        d.loc[held, ['publication_allowed', 'is_reliable']] = False
+        d.loc[held, 'publication_status'] = 'HOLD_YOUNG_AGE_PLATEAU_WEAK_EVIDENCE'
     unseen=d.oof_n.eq(0) & d.publication_allowed
     d.loc[unseen,'publication_status']='PUBLISH_MARKET_SUPPORTED_UNTESTED'
     d['publication_reason_code']=d['publication_status']

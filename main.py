@@ -90,7 +90,7 @@ if __name__ == "__main__":
     schedule.every().day.at("00:00").do(job_crawl_and_process)
 
     schedule.every().day.at("22:30").do(sync_zero_prices_task)
-    schedule.every().day.at("23:30").do(sync_factory_prices)
+    schedule.every().day.at("23:00").do(sync_factory_prices)
     schedule.every().day.at("23:30").do(sync_dollar_price_task)
     
     

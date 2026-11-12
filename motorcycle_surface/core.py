@@ -18,7 +18,7 @@ import math
 import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor
-from .age_market import AgeMarketBuilder
+from .age_market import AgeMarketBuilder, AgeRatePredictor
 from .mileage import MileageHierarchy, LOW, HIGH, monotone_curve_on_age_grid
 from .database import SurfaceDatabaseMixin
 from .reliability import HierarchicalSurfaceReliability
@@ -53,6 +53,9 @@ assert len(FEATURES_24) == 24
 class SurfaceConfig:
     history_days: int = 120
     age_iterations: int = 2000
+    # New experiment: supervised adjacent-year log price ratios.
+    # Set to legacy_price to reproduce the previous independent-price target.
+    age_target_mode: str = "direct_rate"
     residual_iterations: int = 3000
     age_depth: int = 4
     residual_depth: int = 5
@@ -454,19 +457,100 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         return x
 
     def _fit_age_from_past(self, history, cutoff):
-        # Labels of a past forecast t are accessible ONLY when t+7 <= cutoff.
-        past=history[(history['asof']+pd.Timedelta(days=7)<=cutoff) & (history.future_n>=3) & history.curve_hist.notna() & history.future_med.gt(0)].copy()
-        if len(past)<self.config.min_age_training_cells or past['asof'].nunique()<3: return None
-        log.info('[AGE] Train stage-1 for %s: %s supervised cells (%s origins)',
-                 pd.Timestamp(cutoff).date(), f'{len(past):,}', past['asof'].nunique())
+        """Train age stage using only completed one-week future labels.
+
+        direct_rate learns log(P_age / P_age+1) on observed adjacent ages
+        of the SAME variant/motorcycle identity and completed forecast week.
+        Inference integrates those learned year-to-year differences and
+        anchors the curve to historical price levels (never future labels).
+
+        legacy_price is retained for local A/B comparisons.
+        """
+        cutoff = pd.Timestamp(cutoff)
+        past = history[
+            (history['asof'] + pd.Timedelta(days=7) <= cutoff)
+            & (history.future_n >= 3)
+            & history.curve_hist.notna()
+            & history.future_med.gt(0)
+        ].copy()
+        if len(past) < self.config.min_age_training_cells or past['asof'].nunique() < 3:
+            return None
+
+        mode = self.config.age_target_mode
+        if mode not in ('direct_rate', 'legacy_price'):
+            raise ValueError("age_target_mode must be 'direct_rate' or 'legacy_price'")
+
         started = time.perf_counter()
-        model=CatBoostRegressor(iterations=self.config.age_iterations,depth=self.config.age_depth,
-            learning_rate=self.config.age_learning_rate,l2_leaf_reg=6,loss_function='MAE',
-            random_seed=self.config.random_seed,thread_count=self.config.threads,
-            verbose=False,allow_writing_files=False)
-        model.fit(past[AGE_FEATURES],np.log(past.future_med)-past.curve_hist,cat_features=AGE_CATS)
-        log.info('[AGE] Stage-1 fitted for %s in %.1fs', pd.Timestamp(cutoff).date(), time.perf_counter()-started)
-        return model
+        if mode == 'legacy_price':
+            model = CatBoostRegressor(
+                iterations=self.config.age_iterations,
+                depth=self.config.age_depth,
+                learning_rate=self.config.age_learning_rate,
+                l2_leaf_reg=6,
+                loss_function='MAE',
+                random_seed=self.config.random_seed,
+                thread_count=self.config.threads,
+                verbose=False,
+                allow_writing_files=False,
+            )
+            model.fit(
+                past[AGE_FEATURES],
+                np.log(past.future_med) - past.curve_hist,
+                cat_features=AGE_CATS,
+            )
+            log.info('[AGE] Legacy independent-price target: %s cells, %.1fs',
+                     len(past), time.perf_counter() - started)
+            return model
+
+        # Forward adjacent-age join: every pair has the SAME asof and GROUP.
+        # The shifted 'next' row has age+1; this never mixes companies, variants,
+        # weeks, or real/copy identities.
+        older = past[['asof'] + GROUP + [
+            'age', 'future_med', 'future_n', 'curve_hist'
+        ]].copy()
+        older['age'] = older['age'] - 1
+        older = older.rename(columns={
+            'future_med': 'next_future_med',
+            'future_n': 'next_future_n',
+            'curve_hist': 'next_curve_hist',
+        })
+        pairs = past.merge(
+            older, on=['asof'] + GROUP + ['age'],
+            how='inner', validate='one_to_one',
+        )
+        minimum = max(45, self.config.min_age_training_cells // 2)
+        if len(pairs) < minimum or pairs['asof'].nunique() < 3:
+            log.warning('[AGE RATE] Not enough completed adjacent-age pairs: %s',
+                        len(pairs))
+            return None
+
+        target = np.log(
+            pairs.future_med.to_numpy(float)
+            / pairs.next_future_med.to_numpy(float)
+        )
+        target = np.clip(target, -0.35, 0.35)
+        valid = np.isfinite(target)
+        if valid.sum() < 40:
+            return None
+
+        model = CatBoostRegressor(
+            iterations=self.config.age_iterations,
+            depth=self.config.age_depth,
+            learning_rate=self.config.age_learning_rate,
+            l2_leaf_reg=8,
+            loss_function='MAE',
+            random_seed=self.config.random_seed,
+            thread_count=self.config.threads,
+            verbose=False,
+            allow_writing_files=False,
+        )
+        model.fit(
+            pairs.loc[valid, AGE_FEATURES], target[valid],
+            cat_features=AGE_CATS,
+        )
+        log.info('[AGE RATE] Supervised adjacent pairs=%s origins=%s elapsed=%.1fs',
+                 int(valid.sum()), pairs['asof'].nunique(), time.perf_counter() - started)
+        return AgeRatePredictor(model, feature_columns=AGE_FEATURES)
 
     def build_market_snapshots(self, asof):
         self.asof = pd.Timestamp(asof).normalize()
