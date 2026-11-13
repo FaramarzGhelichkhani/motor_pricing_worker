@@ -80,7 +80,7 @@ def run_price_estimation_pipeline():
         # Only the market-risk policy is allowed to set is_reliable.
         if surface.empty:
             raise ValueError("Empty surface: database not updated")
-        if not surface["policy_version"].eq("USED_RELEASE_FINAL_1").all():
+        if not surface["policy_version"].eq("USED_RELEASE_FINAL_1_AGE_PLATEAU_GUARD_CANDIDATE").all():
             raise ValueError("market-risk publication policy was not applied")
         if not surface["is_reliable"].equals(surface["publication_allowed"]):
             raise ValueError("is_reliable does not match market-risk publication decision")
