@@ -438,6 +438,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             extend_parent_supported_min_age=self.config.extend_parent_supported_min_age,
             min_parent_support=self.config.min_parent_age_support,
             include_age_zero=True,
+            include_diagnostic_profiles=False,
         )
         # AgeMarketBuilder owns the single normalized ads frame; Core only reads it.
         self.ads = self.market_builder.ads
