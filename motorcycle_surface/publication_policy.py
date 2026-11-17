@@ -261,9 +261,9 @@ def _compare_duplicate_curve_quality(a: dict, b: dict) -> int:
 
     # A clear market-support winner must dominate BOTH windows. This prevents
     # a large stale 120-day count from masking an almost absent recent market.
-    a_dom = a['n120'] >= b['n120'] * 1.25 and a['n30'] >= b['n30'] * 1.25 and (
+    a_dom = a['n120'] >= b['n120'] * market_dominance_ratio and a['n30'] >= b['n30'] * market_dominance_ratio and (
         a['n120'] > b['n120'] or a['n30'] > b['n30'])
-    b_dom = b['n120'] >= a['n120'] * 1.25 and b['n30'] >= a['n30'] * 1.25 and (
+    b_dom = b['n120'] >= a['n120'] * market_dominance_ratio and b['n30'] >= a['n30'] * market_dominance_ratio and (
         b['n120'] > a['n120'] or b['n30'] > a['n30'])
     if a_dom and not b_dom:
         return 1
