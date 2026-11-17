@@ -27,6 +27,7 @@ from .local_bias_v7 import LocalSelectiveBiasCalibrator, LocalRiskConfig, downwa
 from .publication_policy import apply_publication, PublicationConfig, POLICY_VERSION
 from .recent_market_guard import apply_recent_market_guard
 from .weighted_isotonic_v3 import weighted_ragged_isotonic
+from .monotone_utils import product_order_min_closure
 from .coverage_policy_v4 import apply_age_window_certificate
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,8 @@ AGE_NUM = ['age','min_age','max_age','n_group_all','med14','med30','med60','med1
 AGE_LOG = ['med14','med30','med60','med120','group_med14','group_med30',
            'group_med120','curve_hist','pool_age_median']
 AGE_FEATURES = AGE_CATS + AGE_NUM
+# Only these columns are consumed by historical Age-model fitting.
+AGE_HISTORY_COLUMNS = list(dict.fromkeys(AGE_FEATURES + ['asof', 'future_med', 'future_n', 'curve_hist']))
 FEATURES_24 = CATS + ['age','age_ref_log','mileage_bucket','mileage_clean',
     'mileage_log','mileage_per_year','relative_mileage_to_standard_age',
     'price_per_km_proxy','condition_tier','n14','n30','n120','group_n30',
@@ -311,7 +314,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         self.today = None
         self._surface_df = None
         self._model_index_history_data = None
-        self._input_year_data = None
         self._surface_original_by_id = pd.Series(dtype='int8', name='is_original')
         self.ads = None
         self.market_builder = None
@@ -403,7 +405,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         log.info('[DATA] excluded %s non-ads rows BEFORE identity/year/feature work', excluded)
         if df.empty:
             raise ValueError('No ad observations: factory data cannot train used-price models')
-        self._input_year_data = df[[c for c in (GROUP + ['age', 'date', 'production_year']) if c in df.columns]].copy()
         necessary = GROUP + ['date','source','price','age','mileage','mileage_bucket','condition_tier']
         missing = [c for c in necessary if c not in df]
         if missing: raise ValueError(f'Missing preprocessing columns: {missing}')
@@ -438,7 +439,8 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             min_parent_support=self.config.min_parent_age_support,
             include_age_zero=True,
         )
-        self.ads = self.market_builder.ads.copy()
+        # AgeMarketBuilder owns the single normalized ads frame; Core only reads it.
+        self.ads = self.market_builder.ads
         log.info('[DATA] Valid used ads=%s | dates=%s -> %s', f'{len(self.ads):,}', self.ads.date.min().date(), self.ads.date.max().date())
         return self
 
@@ -467,12 +469,15 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         legacy_price is retained for local A/B comparisons.
         """
         cutoff = pd.Timestamp(cutoff)
-        past = history[
+        eligible = (
             (history['asof'] + pd.Timedelta(days=7) <= cutoff)
             & (history.future_n >= 3)
             & history.curve_hist.notna()
             & history.future_med.gt(0)
-        ].copy()
+        )
+        # The full snapshot is wider; CatBoost and the adjacent-age join only
+        # consume AGE_FEATURES plus these four temporal/label columns.
+        past = history.loc[eligible, AGE_HISTORY_COLUMNS].copy()
         if len(past) < self.config.min_age_training_cells or past['asof'].nunique() < 3:
             return None
 
@@ -558,6 +563,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         if self.asof <= self.ads.date.min()+pd.Timedelta(days=28):
             raise ValueError('Need > 4 weeks of history for the age model')
         all_frames=[]
+        age_history_frames=[]
         origins = self._origins(self.asof)
         log.info('[AGE] Building %s causal snapshots up to %s', len(origins), self.asof.date())
         started = time.perf_counter()
@@ -571,7 +577,8 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             f=self.ads[self.ads.date.ge(dt)&self.ads.date.lt(dt+pd.Timedelta(days=7))].groupby(['gid','age']).price.agg(future_med='median',future_n='size').reset_index()
             z=z.merge(f,on=['gid','age'],how='left',validate='one_to_one')
             # Future fields for current asof are NEVER used by training or feature generation.
-            known=pd.concat(all_frames,ignore_index=True) if all_frames else pd.DataFrame()
+            known=(pd.concat(age_history_frames,ignore_index=True)
+                   if age_history_frames else pd.DataFrame(columns=AGE_HISTORY_COLUMNS))
             model=self._fit_age_from_past(known,dt) if len(known) else None
             z['age_model_logprice']=z['curve_hist']
             z['age_model_is_fitted']=int(model is not None)
@@ -579,6 +586,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                 z['age_model_logprice']=z['curve_hist'] + model.predict(z[AGE_FEATURES])
             if dt==self.asof: self.age_model=model
             all_frames.append(z)
+            age_history_frames.append(z[AGE_HISTORY_COLUMNS])
             log.info('[AGE] Snapshot %s/%s done: cells=%s model=%s', index, len(origins), f'{len(z):,}', bool(model))
         self.snapshots=pd.concat(all_frames,ignore_index=True)
         # Absolute last asof exists even if not Saturday.
@@ -895,7 +903,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
 
     def _build_used_grid(self, asof, history):
         log.info('[GRID] Building economically plausible ragged grid at %s',pd.Timestamp(asof).date())
-        m=self.market_at(asof).copy()
+        m=self.market_at(asof)
         support=self._recent_motorcycle_counts(history,asof)
         m=m.merge(support,on=PARENT,how='left',validate='many_to_one')
         m['motorcycle_n30']=m.motorcycle_n30.fillna(0).astype(int)
@@ -964,18 +972,24 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         """
         y=np.log(np.asarray(prices,float))
         coords=np.asarray(coordinates,int)
+        # Coordinate chains are invariant across Dykstra/PAVA iterations.
+        # Build them once rather than regrouping and sorting on every pass.
+        axis_slices=[]
+        for axis in range(3):
+            other=[j for j in range(3) if j!=axis]
+            groups={}
+            for ii,v in enumerate(coords):
+                key=tuple(int(v[j]) for j in other)
+                groups.setdefault(key,[]).append(ii)
+            for ids in groups.values():
+                ids=np.asarray(ids,int)
+                ids=ids[np.argsort(coords[ids,axis])]
+                if len(ids)>1:
+                    axis_slices.append(ids)
         for _ in range(9):
             prev=y.copy()
-            for axis in range(3):
-                other=[j for j in range(3) if j!=axis]
-                groups={}
-                for ii,v in enumerate(coords):
-                    key=tuple(int(v[j]) for j in other)
-                    groups.setdefault(key,[]).append(ii)
-                for ids in groups.values():
-                    ids=np.asarray(ids,int)
-                    ids=ids[np.argsort(coords[ids,axis])]
-                    if len(ids)>1:y[ids]=_pav_down(y[ids])
+            for ids in axis_slices:
+                y[ids]=_pav_down(y[ids])
             if np.max(np.abs(prev-y))<1e-10:break
         if fixed_anchor is not None:
             anchor_log=np.log(float(fixed_anchor))
@@ -983,13 +997,9 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             mask=np.all(coords==[0,0,1],axis=1)
             if mask.sum()!=1:raise ValueError('Factory anchor coordinate missing or duplicated')
             y[mask]=anchor_log
-        # Exact monotone closure for all comparable valid cells. Sparse, irregular
-        # grids cannot use reshape or rectangular minimum.accumulate.
-        order=np.lexsort((coords[:,2],coords[:,1],coords[:,0]))
-        for pos,t in enumerate(order):
-            predecessors=order[:pos]
-            predecessors=predecessors[np.all(coords[predecessors] <= coords[t],axis=1)]
-            if len(predecessors):y[t]=min(y[t],np.min(y[predecessors]))
+        # Exact closure on the sparse product order; coordinates are compressed
+        # before the 3-D prefix minimum, so absent cells never participate.
+        y=product_order_min_closure(y,coords)
         return np.exp(y)
 
     def _project_monotone(self, grid):
