@@ -45,6 +45,18 @@ AGE_LOG = ['med14','med30','med60','med120','group_med14','group_med30',
 AGE_FEATURES = AGE_CATS + AGE_NUM
 # Only these columns are consumed by historical Age-model fitting.
 AGE_HISTORY_COLUMNS = list(dict.fromkeys(AGE_FEATURES + ['asof', 'future_med', 'future_n', 'curve_hist']))
+
+
+def _concat_age_training_history(frames):
+    """Concatenate only the columns consumed by historical Age-model fitting."""
+    if not frames:
+        return pd.DataFrame(columns=AGE_HISTORY_COLUMNS)
+    return pd.concat(
+        (frame.loc[:, AGE_HISTORY_COLUMNS] for frame in frames),
+        ignore_index=True,
+    )
+
+
 FEATURES_24 = CATS + ['age','age_ref_log','mileage_bucket','mileage_clean',
     'mileage_log','mileage_per_year','relative_mileage_to_standard_age',
     'price_per_km_proxy','condition_tier','n14','n30','n120','group_n30',
@@ -564,7 +576,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         if self.asof <= self.ads.date.min()+pd.Timedelta(days=28):
             raise ValueError('Need > 4 weeks of history for the age model')
         all_frames=[]
-        age_history_frames=[]
         origins = self._origins(self.asof)
         log.info('[AGE] Building %s causal snapshots up to %s', len(origins), self.asof.date())
         started = time.perf_counter()
@@ -578,8 +589,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             f=self.ads[self.ads.date.ge(dt)&self.ads.date.lt(dt+pd.Timedelta(days=7))].groupby(['gid','age']).price.agg(future_med='median',future_n='size').reset_index()
             z=z.merge(f,on=['gid','age'],how='left',validate='one_to_one')
             # Future fields for current asof are NEVER used by training or feature generation.
-            known=(pd.concat(age_history_frames,ignore_index=True)
-                   if age_history_frames else pd.DataFrame(columns=AGE_HISTORY_COLUMNS))
+            known=_concat_age_training_history(all_frames)
             model=self._fit_age_from_past(known,dt) if len(known) else None
             z['age_model_logprice']=z['curve_hist']
             z['age_model_is_fitted']=int(model is not None)
@@ -587,7 +597,6 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                 z['age_model_logprice']=z['curve_hist'] + model.predict(z[AGE_FEATURES])
             if dt==self.asof: self.age_model=model
             all_frames.append(z)
-            age_history_frames.append(z[AGE_HISTORY_COLUMNS])
             log.info('[AGE] Snapshot %s/%s done: cells=%s model=%s', index, len(origins), f'{len(z):,}', bool(model))
         self.snapshots=pd.concat(all_frames,ignore_index=True)
         # Absolute last asof exists even if not Saturday.
