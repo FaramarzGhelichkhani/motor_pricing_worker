@@ -120,6 +120,12 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, {self.key(2), self.key(4)})
 
+    def test_difference_above_one_percent_is_not_a_duplicate(self):
+        surface = self.make_surface(ages=(2, 4))
+        surface.loc[surface.age.eq(2), 'price_center'] *= 1.012
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        self.assertEqual(held, set())
+
     def test_two_oof_curves_with_unacceptable_extreme_errors_are_both_held(self):
         surface = self.make_surface(ages=(2, 4), supports={2:(40,12), 4:(8,2)})
         history_rows = []
@@ -132,7 +138,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
                         'real_model':'Click 150','is_copy':0,'model_variant':'DEFAULT',
                         'age':age,'condition_tier':1,'mileage_bucket':bucket,
                         'asof':origin,'price_center':mid,
-                        'actual_independent':mid * 1.25,
+                        'actual_independent':mid * 1.30,
                         'future_unique_ads':3,'future_observed_days':2,'future_iqr_pct':10,
                     })
         held = unsupported_adjacent_plateau_curves(
