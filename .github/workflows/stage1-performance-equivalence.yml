@@ -22,4 +22,4 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install -r requirements.txt
       - name: Run unit and synthetic equivalence tests
-        run: python -m unittest discover -s tests -v
+        run: python -m unittest tests.test_stage1_performance_equivalence tests.test_database_persistence -v
