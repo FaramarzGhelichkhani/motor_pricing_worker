@@ -1,5 +1,6 @@
 """Synthetic equivalence tests for stage-1 performance-only changes."""
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from motorcycle_surface.age_market import AgeMarketBuilder, _expand_age_span
 from motorcycle_surface.core import (
     AGE_HISTORY_COLUMNS,
     MotorcyclePriceSurface,
+    SurfaceConfig,
     _concat_age_training_history,
 )
 from motorcycle_surface.local_bias_v7 import downward_monotone_envelope
@@ -185,6 +187,15 @@ class Stage1PerformanceEquivalenceTests(unittest.TestCase):
             _legacy_product_order_min_closure(values, coords),
         )
 
+    def test_non_finite_values_keep_legacy_closure_semantics(self):
+        coords = np.asarray([
+            (0, 0, 1), (1, 0, 1), (1, 1, 2)
+        ])
+        values = np.asarray([8.0, np.nan, 4.0])
+        actual = product_order_min_closure(values, coords)
+        expected = _legacy_product_order_min_closure(values, coords)
+        np.testing.assert_array_equal(actual, expected)
+
     def test_weighted_projection_and_final_surface_discount_are_unchanged(self):
         coords = _unique_ragged_coordinates(self.rng, 100)
         if not np.any(np.all(coords == [0, 0, 1], axis=1)):
@@ -193,10 +204,10 @@ class Stage1PerformanceEquivalenceTests(unittest.TestCase):
         weights = self.rng.uniform(0.5, 5.0, len(coords))
 
         expected_base = _legacy_weighted_ragged_isotonic(
-            prices, coords, weights=weights, fixed_anchor=None
+            prices, coords, weights=weights, fixed_anchor=800_000_000
         )
         actual_base = weighted_ragged_isotonic(
-            prices, coords, weights=weights, fixed_anchor=None
+            prices, coords, weights=weights, fixed_anchor=800_000_000
         )
         np.testing.assert_array_equal(actual_base, expected_base)
 
@@ -286,6 +297,84 @@ class Stage1PerformanceEquivalenceTests(unittest.TestCase):
             check_exact=True,
         )
         self.assertFalse(diagnostic_columns.intersection(production.columns))
+
+    def test_age_model_fit_receives_identical_features_from_full_or_narrow_history(self):
+        origins = pd.to_datetime([
+            "2026-10-01", "2026-10-08", "2026-10-15"
+        ])
+        rows = []
+        for group_id in range(10):
+            for age in (1, 2, 3):
+                for origin_index, origin in enumerate(origins):
+                    base = 900_000_000 - group_id * 3_000_000 - age * 35_000_000
+                    row = {
+                        "motorcycle_model_id": str(200 + group_id),
+                        "real_brand": "Honda",
+                        "real_model": f"Model {group_id}",
+                        "is_copy": "0",
+                        "model_variant": "DEFAULT",
+                        "segment": "Medium",
+                        "age": age,
+                        "min_age": 1,
+                        "max_age": 3,
+                        "n_group_all": 15,
+                        "med14": base * 0.99,
+                        "med30": base,
+                        "med60": base * 1.01,
+                        "med120": base * 1.02,
+                        "n14": 3,
+                        "n30": 5,
+                        "n60": 7,
+                        "n120": 9,
+                        "group_med14": base * 0.99,
+                        "group_med30": base,
+                        "group_med120": base * 1.02,
+                        "group_n14": 8,
+                        "group_n30": 12,
+                        "group_n120": 20,
+                        "curve_hist": base,
+                        "curve_offset": 0.0,
+                        "curve_anchor_n": 10,
+                        "curve_slope": -0.05,
+                        "pool_age_median": base,
+                        "pool_age_n": 50,
+                        "asof": origin,
+                        "future_med": base * (1.0 + origin_index * 0.002),
+                        "future_n": 5,
+                        "unused_snapshot_payload": f"unused-{group_id}-{age}",
+                    }
+                    rows.append(row)
+        full_history = pd.DataFrame(rows)
+        narrow_history = full_history[AGE_HISTORY_COLUMNS].copy()
+        captures = []
+
+        class SpyCatBoost:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def fit(self, features, target, cat_features=None):
+                captures.append((
+                    features.copy(),
+                    np.asarray(target, dtype=float).copy(),
+                    tuple(cat_features or ()),
+                ))
+                return self
+
+        config = SurfaceConfig(
+            min_age_training_cells=40,
+            age_target_mode="direct_rate",
+            show_progress=False,
+        )
+        runner = MotorcyclePriceSurface(config=config)
+        cutoff = pd.Timestamp("2026-11-16")
+        with patch("motorcycle_surface.core.CatBoostRegressor", SpyCatBoost):
+            runner._fit_age_from_past(full_history, cutoff)
+            runner._fit_age_from_past(narrow_history, cutoff)
+
+        self.assertEqual(len(captures), 2)
+        assert_frame_equal(captures[0][0], captures[1][0], check_exact=True)
+        np.testing.assert_array_equal(captures[0][1], captures[1][1])
+        self.assertEqual(captures[0][2], captures[1][2])
 
     def test_narrow_age_history_is_identical_to_full_history_projection(self):
         frames = []
