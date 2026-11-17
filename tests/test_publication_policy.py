@@ -114,6 +114,11 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, {self.key(4)})
 
+    def test_default_similarity_threshold_is_one_percent(self):
+        import inspect
+        parameter = inspect.signature(unsupported_adjacent_plateau_curves).parameters['price_rtol']
+        self.assertEqual(parameter.default, 0.01)
+
     def test_similarity_threshold_is_one_percent(self):
         surface = self.make_surface(ages=(2, 4))
         surface.loc[surface.age.eq(2), 'price_center'] *= 1.008

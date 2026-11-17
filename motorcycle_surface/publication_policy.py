@@ -333,7 +333,7 @@ def unsupported_adjacent_plateau_curves(
     history: pd.DataFrame,
     asof,
     *,
-    price_rtol: float = 0.001,
+    price_rtol: float = 0.01,
     min_matching_buckets: int = 3,
     min_pair_tie_share: float = 0.90,
     market_dominance_ratio: float = 1.25,
