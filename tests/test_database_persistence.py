@@ -140,7 +140,15 @@ class DatabasePersistenceTests(unittest.TestCase):
         class FakeEngine:
             def __init__(self, endpoint):
                 self.dialect = SimpleNamespace(
-                    name="postgresql", supports_two_phase=True
+                    name="postgresql",
+                    **{
+                        method: (lambda *args, **kwargs: None)
+                        for method in (
+                            "do_begin_twophase", "do_prepare_twophase",
+                            "do_commit_twophase", "do_rollback_twophase",
+                            "do_recover_twophase",
+                        )
+                    },
                 )
                 self.url = FakeURL(endpoint)
 

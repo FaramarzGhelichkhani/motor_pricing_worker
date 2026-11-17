@@ -505,7 +505,7 @@ class SurfaceDatabaseMixin:
         return (
             getattr(engine.dialect, "name", ""),
             getattr(url, "host", None),
-            getattr(url, "port", None),
+            getattr(url, "port", None) or 5432,
         )
 
     def _preflight_two_phase(self, participants):
@@ -518,9 +518,17 @@ class SurfaceDatabaseMixin:
         checked = {}
         for participant in participants:
             engine = participant["engine"]
+            required_methods = (
+                "do_begin_twophase", "do_prepare_twophase",
+                "do_commit_twophase", "do_rollback_twophase",
+                "do_recover_twophase",
+            )
             if (
                 getattr(engine.dialect, "name", None) != "postgresql"
-                or not getattr(engine.dialect, "supports_two_phase", False)
+                or not all(
+                    callable(getattr(engine.dialect, method, None))
+                    for method in required_methods
+                )
             ):
                 raise RuntimeError(
                     "Atomic crawler/production persistence requires a "
