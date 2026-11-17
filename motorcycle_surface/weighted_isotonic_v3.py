@@ -6,6 +6,8 @@ Unit-tested in tests/test_weighted_isotonic_v3.py.
 from __future__ import annotations
 import numpy as np
 
+from .monotone_utils import product_order_min_closure
+
 
 def _weighted_pava_down(values, weights):
     """Weighted PAVA enforcing a nonincreasing sequence (pool adjacent violators)."""
@@ -99,12 +101,6 @@ def weighted_ragged_isotonic(prices, coords, weights=None, fixed_anchor=None,
         y = np.minimum(y, anchor_log)
         y[mask] = anchor_log
 
-    # Final exact monotone closure over the full product order (defensive;
-    # guards against any residual float drift from the iterative solver).
-    order = np.lexsort((c[:, 2], c[:, 1], c[:, 0]))
-    for pos, i in enumerate(order):
-        prior = order[:pos]
-        prior = prior[np.all(c[prior] <= c[i], axis=1)]
-        if len(prior):
-            y[i] = min(y[i], np.min(y[prior]))
+    # Exact product-order closure using a compressed 3-D prefix minimum.
+    y = product_order_min_closure(y, c)
     return np.exp(y)

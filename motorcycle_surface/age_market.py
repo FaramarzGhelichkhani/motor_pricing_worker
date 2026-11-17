@@ -11,10 +11,31 @@ from sklearn.isotonic import IsotonicRegression
 GROUP = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy', 'model_variant']
 
 
+def _expand_age_span(span):
+    """Vectorized equivalent of building age lists and DataFrame.explode()."""
+    if span.empty:
+        expanded = span.iloc[0:0].copy()
+        expanded['age'] = pd.Series(dtype='int64')
+        return expanded
+    starts = span['grid_min_age'].to_numpy(dtype=int)
+    stops = span['max'].to_numpy(dtype=int)
+    lengths = stops - starts + 1
+    row_offsets = np.cumsum(lengths) - lengths
+    row_indices = np.repeat(np.arange(len(span)), lengths)
+    age_offsets = np.arange(int(lengths.sum())) - np.repeat(row_offsets, lengths)
+    expanded = span.iloc[row_indices].reset_index(drop=True)
+    expanded['age'] = np.repeat(starts, lengths) + age_offsets
+    return expanded
+
+
 class AgeMarketBuilder:
-    def __init__(self, ads, extend_parent_supported_min_age=True, min_parent_support=2, include_age_zero=True):
+    def __init__(self, ads, extend_parent_supported_min_age=True, min_parent_support=2,
+                 include_age_zero=True, include_diagnostic_profiles=True):
         self.ads = ads.copy()
         self.include_age_zero = bool(include_age_zero)
+        # Diagnostic blend/ISO profiles are not consumed by the production
+        # surface or residual features. Keep them available for explicit audits.
+        self.include_diagnostic_profiles = bool(include_diagnostic_profiles)
         self.ads['gid'] = self.ads.groupby(GROUP, sort=False, dropna=False).ngroup()
         self.gids = self.ads[['gid'] + GROUP + ['segment']].drop_duplicates('gid')
         self.extend_parent_supported_min_age = bool(extend_parent_supported_min_age)
@@ -51,10 +72,7 @@ class AgeMarketBuilder:
             if not self.include_age_zero:
                 span.loc[eligible, 'grid_min_age'] -= 1
 
-        span['age'] = span.apply(
-            lambda r: list(range(int(r['grid_min_age']), int(r['max']) + 1)), axis=1
-        )
-        z = span.explode('age', ignore_index=True).rename(
+        z = _expand_age_span(span).rename(
             columns={'min': 'min_age', 'max': 'max_age', 'size': 'n_group_all'}
         )
         z['age'] = z.age.astype(int)
@@ -74,7 +92,7 @@ class AgeMarketBuilder:
                 b = sub.groupby(['real_model', 'is_copy', 'age']).price.agg(['median', 'size']).rename(
                     columns={'median': 'pool_age_median', 'size': 'pool_age_n'}).reset_index()
                 z = z.merge(b, on=['real_model', 'is_copy', 'age'], how='left', validate='many_to_one')
-        group_slopes = []; segment_slopes = []; model_slopes = []
+        segment_slopes = []; model_slopes = []
         observed = z[z.n120.gt(0)].copy()
         for gid, t in observed.groupby('gid', sort=False):
             t = t.sort_values('age')
@@ -84,11 +102,9 @@ class AgeMarketBuilder:
                 slopes = slopes[np.isfinite(slopes) & (slopes < .03) & (slopes > -.35)]
                 if len(slopes):
                     s = float(np.median(slopes))
-                    group_slopes.append((gid, s))
                     info = t.iloc[0]
                     segment_slopes.append((info['segment'], info['is_copy'], s))
                     model_slopes.append((info['real_model'], info['is_copy'], s))
-        g_slope = dict(group_slopes)
         mdl = pd.DataFrame(model_slopes, columns=['model', 'is_copy', 'slope']).groupby(
             ['model', 'is_copy']).slope.median().to_dict() if model_slopes else {}
         seg = pd.DataFrame(segment_slopes, columns=['seg', 'is_copy', 'slope']).groupby(
@@ -134,28 +150,29 @@ class AgeMarketBuilder:
             z.loc[t.index, 'age_source'] = np.where(nv > 0, 'observed120', 'interpolated_or_extrapolated')
         z.loc[z['parent_boundary_extrapolated'], 'age_source'] = 'parent_supported_boundary_extrapolation'
         z.loc[z.age.eq(0) & z.n120.eq(0), 'age_source'] = 'age0_age_curve_extrapolation'
-        for strength in [0, 1, 3, 7]:
-            recent = z['med30'].to_numpy(float); curve = z['curve_hist'].to_numpy(float)
-            n = z.n30.to_numpy(float)
-            okay = np.isfinite(recent) & (recent > 0) & np.isfinite(curve) & (curve > 0)
-            wt = n / (n + strength) if strength else np.where(n > 0, 1., 0.)
-            pred = np.where(okay, np.exp(wt * np.log(np.where(okay, recent, 1)) +
-                            (1 - wt) * np.log(np.where(np.isfinite(curve) & (curve > 0), curve, 1))), curve)
-            z[f'blend{strength}'] = pred
-            z[f'iso{strength}'] = np.nan
-        for gid, idx in z.groupby('gid', sort=False).groups.items():
-            t = z.loc[idx].sort_values('age'); a = t.age.to_numpy(float)
-            for s in [0, 1, 3, 7]:
-                p = t[f'blend{s}'].to_numpy(float); valid = np.isfinite(p) & (p > 0)
-                if not valid.any():
-                    continue
-                w = np.minimum(t.n30.to_numpy(float), 25) + 2
-                yy = IsotonicRegression(increasing=False).fit_transform(a[valid], np.log(p[valid]), sample_weight=w[valid]) if valid.sum() > 1 else np.log(p[valid])
-                z.loc[t.index[valid], f'iso{s}'] = np.exp(yy)
-        z['raw14'] = z.med14
-        z['raw30'] = z.med30
-        z['raw60'] = z.med60
-        z['raw120'] = z.med120
+        if self.include_diagnostic_profiles:
+            for strength in [0, 1, 3, 7]:
+                recent = z['med30'].to_numpy(float); curve = z['curve_hist'].to_numpy(float)
+                n = z.n30.to_numpy(float)
+                okay = np.isfinite(recent) & (recent > 0) & np.isfinite(curve) & (curve > 0)
+                wt = n / (n + strength) if strength else np.where(n > 0, 1., 0.)
+                pred = np.where(okay, np.exp(wt * np.log(np.where(okay, recent, 1)) +
+                                (1 - wt) * np.log(np.where(np.isfinite(curve) & (curve > 0), curve, 1))), curve)
+                z[f'blend{strength}'] = pred
+                z[f'iso{strength}'] = np.nan
+            for gid, idx in z.groupby('gid', sort=False).groups.items():
+                t = z.loc[idx].sort_values('age'); a = t.age.to_numpy(float)
+                for strength in [0, 1, 3, 7]:
+                    p = t[f'blend{strength}'].to_numpy(float); valid = np.isfinite(p) & (p > 0)
+                    if not valid.any():
+                        continue
+                    w = np.minimum(t.n30.to_numpy(float), 25) + 2
+                    yy = IsotonicRegression(increasing=False).fit_transform(a[valid], np.log(p[valid]), sample_weight=w[valid]) if valid.sum() > 1 else np.log(p[valid])
+                    z.loc[t.index[valid], f'iso{strength}'] = np.exp(yy)
+            z['raw14'] = z.med14
+            z['raw30'] = z.med30
+            z['raw60'] = z.med60
+            z['raw120'] = z.med120
         z['asof'] = cutoff
         return z
     
