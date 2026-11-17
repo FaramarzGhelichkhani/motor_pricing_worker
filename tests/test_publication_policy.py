@@ -91,19 +91,62 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertTrue(published['age_plateau_held'].all())
         self.assertFalse(published['publication_allowed'].any())
         self.assertEqual(published['policy_version'].unique().tolist(),
-                         ['USED_RELEASE_FINAL_4_ALL_AGE_DUPLICATE_QUALITY_GUARD'])
+                         ['USED_RELEASE_FINAL_5_ALL_AGE_DUPLICATE_QUALITY_GUARD'])
 
     def test_all_distinct_ages_are_compared(self):
         surface = self.make_surface(ages=(0, 3, 8))
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, {self.key(0), self.key(3), self.key(8)})
 
+
+    def test_one_vs_zero_ads_cannot_create_a_winner(self):
+        surface = self.make_surface(ages=(2, 4), supports={2:(1,0), 4:(0,0)})
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        self.assertEqual(held, {self.key(2), self.key(4)})
+
+    def test_market_winner_must_clear_absolute_support_floors(self):
+        surface = self.make_surface(ages=(2, 4), supports={2:(19,5), 4:(1,0)})
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        self.assertEqual(held, {self.key(2), self.key(4)})
+
+    def test_market_winner_with_absolute_and_relative_support_is_kept(self):
+        surface = self.make_surface(ages=(2, 4), supports={2:(40,12), 4:(8,2)})
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        self.assertEqual(held, {self.key(4)})
+
+    def test_similarity_threshold_is_one_percent(self):
+        surface = self.make_surface(ages=(2, 4))
+        surface.loc[surface.age.eq(2), 'price_center'] *= 1.008
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        self.assertEqual(held, {self.key(2), self.key(4)})
+
+    def test_two_oof_curves_with_unacceptable_extreme_errors_are_both_held(self):
+        surface = self.make_surface(ages=(2, 4), supports={2:(40,12), 4:(8,2)})
+        history_rows = []
+        for age in (2, 4):
+            for origin, buckets in (('2026-10-17',(0,1)), ('2026-10-24',(2,))):
+                for bucket in buckets:
+                    mid = 700_000_000 - bucket * 10_000_000
+                    history_rows.append({
+                        'motorcycle_model_id':'203','real_brand':'Honda',
+                        'real_model':'Click 150','is_copy':0,'model_variant':'DEFAULT',
+                        'age':age,'condition_tier':1,'mileage_bucket':bucket,
+                        'asof':origin,'price_center':mid,
+                        'actual_independent':mid * 1.25,
+                        'future_unique_ads':3,'future_observed_days':2,'future_iqr_pct':10,
+                    })
+        held = unsupported_adjacent_plateau_curves(
+            surface, pd.DataFrame(history_rows), '2026-11-16')
+        self.assertEqual(held, {self.key(2), self.key(4)})
+
     def test_config_has_only_price_similarity_thresholds(self):
         cfg = PublicationConfig()
-        self.assertEqual(cfg.age_plateau_price_rtol, 0.001)
+        self.assertEqual(cfg.age_plateau_price_rtol, 0.01)
         self.assertEqual(cfg.age_plateau_min_matching_buckets, 3)
         self.assertEqual(cfg.age_plateau_min_pair_tie_share, 0.90)
         self.assertEqual(cfg.age_plateau_market_dominance_ratio, 1.25)
+        self.assertEqual(cfg.age_plateau_winner_min_n120, 20.0)
+        self.assertEqual(cfg.age_plateau_winner_min_n30, 6.0)
 
 
 if __name__ == '__main__':

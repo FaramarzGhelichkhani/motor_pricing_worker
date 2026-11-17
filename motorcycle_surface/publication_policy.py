@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_4_ALL_AGE_DUPLICATE_QUALITY_GUARD'
+POLICY_VERSION = 'USED_RELEASE_FINAL_5_ALL_AGE_DUPLICATE_QUALITY_GUARD'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -41,10 +41,14 @@ class PublicationConfig:
     age_plateau_guard_enabled: bool = True
     # All distinct production ages are compared; quality decides which full
     # curve is held, and indistinguishable pairs are both held.
-    age_plateau_price_rtol: float = 0.001
+    age_plateau_price_rtol: float = 0.01
     age_plateau_min_matching_buckets: int = 3
     age_plateau_min_pair_tie_share: float = 0.90
     age_plateau_market_dominance_ratio: float = 1.25
+    # A market-supported winner must clear both absolute support floors.
+    # Relative ratios alone are unsafe when the competing curve has zero ads.
+    age_plateau_winner_min_n120: float = 20.0
+    age_plateau_winner_min_n30: float = 6.0
 
 
 def _norm(df):
@@ -181,7 +185,8 @@ def _plateau_curve_quality(surface: pd.DataFrame, history: pd.DataFrame, asof):
         metrics[key] = {
             'n120': float(row[-3]), 'n30': float(row[-2]),
             'bucket_count': int(row[-1]),
-            'oof_valid': False, 'oof_n': 0, 'oof_weeks': 0,
+            'oof_evaluable': False, 'oof_valid': False,
+            'oof_n': 0, 'oof_weeks': 0,
             'oof_mdape': np.nan, 'oof_max_ape': np.nan,
         }
 
@@ -226,51 +231,102 @@ def _plateau_curve_quality(surface: pd.DataFrame, history: pd.DataFrame, asof):
         metrics[key].update({
             'oof_n': int(n), 'oof_weeks': int(weeks),
             'oof_mdape': float(mdape), 'oof_max_ape': float(max_ape),
+            'oof_evaluable': bool(n >= 3 and weeks >= 2),
             'oof_valid': bool(n >= 3 and weeks >= 2 and mdape <= 8 and max_ape <= 20),
         })
     return metrics
 
 
-def _compare_duplicate_curve_quality(a: dict, b: dict, market_dominance_ratio: float = 1.25) -> int:
+def _compare_duplicate_curve_quality(
+    a: dict,
+    b: dict,
+    market_dominance_ratio: float = 1.25,
+    winner_min_n120: float = 20.0,
+    winner_min_n30: float = 6.0,
+) -> int:
     """Return 1 if a is stronger, -1 if b is stronger, 0 if indistinguishable.
 
-    Exact-age OOF validation outranks unvalidated market support. Among two
-    validated curves, practically meaningful error differences decide first.
-    If validation is absent/equivalent, market support decides only when one
-    curve clearly dominates both recent and 120-day evidence; otherwise both
-    are treated as indistinguishable and must be held.
+    Quality is decided independently of similarity. Exact-age OOF evidence has
+    priority. Market evidence can decide only when one curve clears absolute
+    support floors AND dominates the other in both time windows. This avoids
+    false wins caused by a zero denominator (e.g. 1 ad versus 0 ads).
     """
-    av, bv = a['oof_valid'], b['oof_valid']
+    av, bv = bool(a.get('oof_valid', False)), bool(b.get('oof_valid', False))
+    ae, be = bool(a.get('oof_evaluable', False)), bool(b.get('oof_evaluable', False))
+
+    # A curve with a qualifying exact-age OOF certificate wins over one without.
     if av != bv:
         return 1 if av else -1
 
-    if av and bv:
-        # Avoid treating tiny MAPE fluctuations as a real quality advantage.
-        if a['oof_mdape'] + 0.5 < b['oof_mdape']:
-            return 1
-        if b['oof_mdape'] + 0.5 < a['oof_mdape']:
-            return -1
-        if a['oof_max_ape'] + 2.0 < b['oof_max_ape']:
-            return 1
-        if b['oof_max_ape'] + 2.0 < a['oof_max_ape']:
-            return -1
-        if a['oof_weeks'] >= b['oof_weeks'] + 2:
-            return 1
-        if b['oof_weeks'] >= a['oof_weeks'] + 2:
-            return -1
+    def oof_better(x, y):
+        """Material OOF advantage without a worse extreme-error tail."""
+        if not np.isfinite(x.get('oof_mdape', np.nan)) or not np.isfinite(y.get('oof_mdape', np.nan)):
+            return False
+        mdape_better = x['oof_mdape'] + 0.5 < y['oof_mdape']
+        max_not_worse = (
+            np.isfinite(x.get('oof_max_ape', np.nan)) and
+            np.isfinite(y.get('oof_max_ape', np.nan)) and
+            x['oof_max_ape'] <= y['oof_max_ape'] + 2.0
+        )
+        return bool(mdape_better and max_not_worse and x['oof_max_ape'] <= 20.0)
 
-    # A clear market-support winner must dominate BOTH windows. This prevents
-    # a large stale 120-day count from masking an almost absent recent market.
-    a_dom = a['n120'] >= b['n120'] * market_dominance_ratio and a['n30'] >= b['n30'] * market_dominance_ratio and (
-        a['n120'] > b['n120'] or a['n30'] > b['n30'])
-    b_dom = b['n120'] >= a['n120'] * market_dominance_ratio and b['n30'] >= a['n30'] * market_dominance_ratio and (
-        b['n120'] > a['n120'] or b['n30'] > a['n30'])
+    if ae and be:
+        # Two independently evaluable curves: use OOF only for a material,
+        # robust advantage. If both show >20% tail error, neither is a safe
+        # winner and both must be held.
+        a_max_bad = a['oof_max_ape'] > 20.0
+        b_max_bad = b['oof_max_ape'] > 20.0
+        if a_max_bad and b_max_bad:
+            return 0
+        if a_max_bad != b_max_bad:
+            return -1 if a_max_bad else 1
+        if oof_better(a, b):
+            return 1
+        if oof_better(b, a):
+            return -1
+    elif ae != be:
+        # A poor, independently evaluated curve cannot win merely on market
+        # counts. The unevaluated curve may win only with strong market proof.
+        evaluated = a if ae else b
+        if evaluated.get('oof_max_ape', np.inf) > 20.0:
+            pass  # let the market test select only the unevaluated side
+        elif evaluated.get('oof_mdape', np.inf) > 8.0:
+            pass
+        else:
+            # Evidence exists but does not meet the certificate criteria;
+            # absent a material comparison, do not infer a winner.
+            pass
+
+    # Market winner: require absolute recent and historical support first,
+    # then require a relative advantage in BOTH windows. The absolute floors
+    # make 1-vs-0 and other tiny-denominator comparisons non-decisive.
+    a_qualified = a['n120'] >= winner_min_n120 and a['n30'] >= winner_min_n30
+    b_qualified = b['n120'] >= winner_min_n120 and b['n30'] >= winner_min_n30
+    a_dom = (
+        a_qualified and
+        a['n120'] >= b['n120'] * market_dominance_ratio and
+        a['n30'] >= b['n30'] * market_dominance_ratio and
+        (a['n120'] > b['n120'] or a['n30'] > b['n30'])
+    )
+    b_dom = (
+        b_qualified and
+        b['n120'] >= a['n120'] * market_dominance_ratio and
+        b['n30'] >= a['n30'] * market_dominance_ratio and
+        (b['n120'] > a['n120'] or b['n30'] > a['n30'])
+    )
+
+    # If one curve has evaluable but failed OOF evidence, do not let that same
+    # curve win on market counts; only its unevaluated competitor can be kept.
+    if ae and not av:
+        a_dom = False
+    if be and not bv:
+        b_dom = False
+
     if a_dom and not b_dom:
         return 1
     if b_dom and not a_dom:
         return -1
     return 0
-
 
 def unsupported_adjacent_plateau_curves(
     d: pd.DataFrame,
@@ -281,6 +337,8 @@ def unsupported_adjacent_plateau_curves(
     min_matching_buckets: int = 3,
     min_pair_tie_share: float = 0.90,
     market_dominance_ratio: float = 1.25,
+    winner_min_n120: float = 20.0,
+    winner_min_n30: float = 6.0,
 ) -> set[tuple]:
     """Hold weaker or indistinguishable curves whenever ANY two ages plateau.
 
@@ -344,7 +402,10 @@ def unsupported_adjacent_plateau_curves(
                     held.update([first, second])
                     continue
 
-                decision = _compare_duplicate_curve_quality(qa, qb, market_dominance_ratio)
+                decision = _compare_duplicate_curve_quality(
+                    qa, qb, market_dominance_ratio,
+                    winner_min_n120, winner_min_n30,
+                )
                 if decision > 0:
                     held.add(second)
                 elif decision < 0:
@@ -437,6 +498,8 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
             min_matching_buckets=cfg.age_plateau_min_matching_buckets,
             min_pair_tie_share=cfg.age_plateau_min_pair_tie_share,
             market_dominance_ratio=cfg.age_plateau_market_dominance_ratio,
+            winner_min_n120=cfg.age_plateau_winner_min_n120,
+            winner_min_n30=cfg.age_plateau_winner_min_n30,
         )
         held = curvekey.isin(plateau_held)
         d.loc[held, 'age_plateau_held'] = True
