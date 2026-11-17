@@ -12,6 +12,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from .monotone_utils import product_order_min_closure
+
 GROUP = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy', 'model_variant']
 COORDS = ['age', 'mileage_bucket', 'condition_tier']
 
@@ -36,14 +38,7 @@ def downward_monotone_envelope(baseline_prices, desired_prices, coordinates):
         raise ValueError('Selective shift may not increase baseline prices')
     if len(base) == 0:
         return target.copy()
-    ordering = np.lexsort((xyz[:, 2], xyz[:, 1], xyz[:, 0]))
-    result = target.copy()
-    for step, idx in enumerate(ordering):
-        prev = ordering[:step]
-        prev = prev[np.all(xyz[prev] <= xyz[idx], axis=1)]
-        if len(prev):
-            result[idx] = min(result[idx], float(result[prev].min()))
-    return result
+    return product_order_min_closure(target, xyz)
 
 
 @dataclass(frozen=True)
