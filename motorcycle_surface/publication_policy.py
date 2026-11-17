@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_2_MID_ONLY_AGE_PLATEAU'
+POLICY_VERSION = 'USED_RELEASE_FINAL_3_MID_ONLY_ADJACENT_YEAR_GUARD'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -39,8 +39,10 @@ class PublicationConfig:
     min_future_days: int = 2
     max_future_iqr_pct: float = 20.0
     age_plateau_guard_enabled: bool = True
-    # Compare adjacent young production years (age 1..3 against the next older age).
-    age_plateau_max_age: int = 3
+    # Compare every adjacent production-year pair from age 0..13; age 14 is
+    # retained as the oldest reference when a whole plateau has weak support.
+    age_plateau_min_age: int = 0
+    age_plateau_max_age: int = 13
     # Only the middle price is used for plateau detection. price_center is the
     # current surface schema's equivalent of price_mid.
     age_plateau_price_rtol: float = 0.001  # 0.1% relative difference
@@ -165,12 +167,13 @@ def _mid_price_column(frame: pd.DataFrame) -> str:
     raise ValueError('Adjacent-year plateau guard requires price_mid/price_center')
 
 
-def unsupported_young_plateau_curves(
+def unsupported_adjacent_plateau_curves(
     d: pd.DataFrame,
     history: pd.DataFrame,
     asof,
     *,
-    max_age: int = 3,
+    min_age: int = 0,
+    max_age: int = 13,
     price_rtol: float = 0.001,
     min_matching_buckets: int = 3,
     min_pair_tie_share: float = 0.90,
@@ -185,7 +188,7 @@ def unsupported_young_plateau_curves(
     min_pair_tie_share of those prices differ by no more than price_rtol.
 
     Either side can be held only when its age is within the guarded range
-    (1..max_age) and its median per-bucket support is weak in BOTH the 120-day
+    (min_age..max_age) and its median per-bucket support is weak in BOTH the 120-day
     and 30-day windows. A better-supported neighbor is retained. Independent,
     completed OOF evidence can exempt a curve from the hold.
     """
@@ -193,7 +196,7 @@ def unsupported_young_plateau_curves(
     required = set(CELL + [mid_col, 'n120', 'n30', 'publication_allowed'])
     missing = required - set(d.columns)
     if missing:
-        raise ValueError(f'Young-age plateau gate requires {sorted(missing)}')
+        raise ValueError(f'Adjacent-year plateau gate requires {sorted(missing)}')
 
     live = d.loc[d.publication_allowed.fillna(False).astype(bool)].copy()
     if live.empty:
@@ -206,14 +209,14 @@ def unsupported_young_plateau_curves(
 
     # Align age a with age a+1 by shifting the latter's age down one year.
     # A merge on the full cell key ensures only shared mileage buckets compare.
-    young = live.loc[live['age'].between(1, max_age + 1), CELL + [mid_col]].copy()
+    young = live.loc[live['age'].between(min_age, max_age + 1), CELL + [mid_col]].copy()
     if young.empty:
         return set()
     older = young.copy()
     older['age'] = older['age'] - 1
     older = older.rename(columns={mid_col: 'older_mid'})
     pair = young.merge(older, on=CELL, how='inner', validate='one_to_one')
-    pair = pair.loc[pair['age'].between(1, max_age)].copy()
+    pair = pair.loc[pair['age'].between(min_age, max_age)].copy()
     if pair.empty:
         return set()
 
@@ -236,22 +239,52 @@ def unsupported_young_plateau_curves(
     if suspect.empty:
         return set()
 
-    # A side is eligible only if its own age is inside the guarded young-age
-    # range and its own support is weak. A better-supported neighbor survives.
-    keys = set()
+    # Build per-curve support for both sides of each pair. If both are weak,
+    # retain the better-supported curve instead of suppressing both.
+    support_curves = (live.loc[live['age'].between(min_age, max_age + 1)]
+                      .groupby(CURVE, dropna=False)
+                      .agg(n120=('n120', 'median'), n30=('n30', 'median'))
+                      .reset_index())
+    support_map = {}
+    for row in support_curves.itertuples(index=False, name=None):
+        curve_key = tuple(row[:len(CURVE)])
+        support_map[curve_key] = (float(row[-2]), float(row[-1]))
+
+    def is_weak(curve_key):
+        age = int(curve_key[-2])
+        support = support_map.get(curve_key)
+        return (
+            min_age <= age <= max_age and support is not None and
+            support[0] < n120_min and support[1] < n30_min
+        )
+
+    def support_score(support):
+        # Normalize both windows before combining them so the larger 120-day
+        # counts do not drown out the 30-day signal.
+        return support[0] / max(n120_min, 1) + support[1] / max(n30_min, 1)
+
+    candidates = set()
     for row in suspect[GROUP + ['age', 'condition_tier']].itertuples(index=False, name=None):
         group_values, younger_age, condition = row[:-2], int(row[-2]), row[-1]
-        keys.add(tuple(group_values) + (younger_age, condition))
-        keys.add(tuple(group_values) + (younger_age + 1, condition))
+        younger_key = tuple(group_values) + (younger_age, condition)
+        older_key = tuple(group_values) + (younger_age + 1, condition)
+        younger_support = support_map.get(younger_key)
+        older_support = support_map.get(older_key)
+        younger_weak = is_weak(younger_key)
+        older_weak = is_weak(older_key)
 
-    young_curves = (live.loc[live['age'].between(1, max_age)]
-                    .groupby(CURVE, dropna=False)
-                    .agg(n120=('n120', 'median'), n30=('n30', 'median'))
-                    .reset_index())
-    weak = young_curves.loc[
-        young_curves['n120'].lt(n120_min) & young_curves['n30'].lt(n30_min)
-    ]
-    candidates = set(map(tuple, weak[CURVE].itertuples(index=False, name=None))) & keys
+        if younger_weak and older_weak:
+            # Keep the curve with more normalized evidence. On an exact tie,
+            # retain the older production year as the conservative anchor.
+            if support_score(younger_support) > support_score(older_support):
+                candidates.add(older_key)
+            else:
+                candidates.add(younger_key)
+        elif younger_weak:
+            candidates.add(younger_key)
+        elif older_weak:
+            candidates.add(older_key)
+
     if not candidates:
         return set()
 
@@ -295,6 +328,10 @@ def unsupported_young_plateau_curves(
             certified = set(map(tuple, good[CURVE].itertuples(index=False, name=None)))
 
     return candidates - certified
+
+# Backward-compatible alias for scripts using the earlier helper name.
+unsupported_young_plateau_curves = unsupported_adjacent_plateau_curves
+
 
 def apply_publication(surface, asof, history, cfg: PublicationConfig = PublicationConfig()):
     if surface is None or surface.empty:
@@ -367,12 +404,13 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
         ['HOLD_INVALID_CURVE','HOLD_INCOMPLETE_CURVE','HOLD_OOF_SEVERE','HOLD_CONFIRMED_OVER_UNDER_20',
          'HOLD_WEAK_MODEL_MARKET','HOLD_WEAK_VARIANT_MARKET'],
         default='PUBLISH_OOF_CHECKED')
-    # Age plateaus are suspicious only where the exact young-age curve has
-    # little historical support and no independent completed-age OOF proof.
+    # Adjacent-year plateaus are held only when support is weak and no
+    # independent completed-age OOF evidence certifies the curve.
     d['age_plateau_held'] = False
     if cfg.age_plateau_guard_enabled:
-        plateau_held = unsupported_young_plateau_curves(
+        plateau_held = unsupported_adjacent_plateau_curves(
             d, history, asof,
+            min_age=cfg.age_plateau_min_age,
             max_age=cfg.age_plateau_max_age,
             price_rtol=cfg.age_plateau_price_rtol,
             min_matching_buckets=cfg.age_plateau_min_matching_buckets,
@@ -383,7 +421,7 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
         held = curvekey.isin(plateau_held)
         d.loc[held, 'age_plateau_held'] = True
         d.loc[held, ['publication_allowed', 'is_reliable']] = False
-        d.loc[held, 'publication_status'] = 'HOLD_YOUNG_AGE_PLATEAU_WEAK_EVIDENCE'
+        d.loc[held, 'publication_status'] = 'HOLD_ADJACENT_YEAR_PLATEAU_WEAK_EVIDENCE'
     unseen=d.oof_n.eq(0) & d.publication_allowed
     d.loc[unseen,'publication_status']='PUBLISH_MARKET_SUPPORTED_UNTESTED'
     d['publication_reason_code']=d['publication_status']

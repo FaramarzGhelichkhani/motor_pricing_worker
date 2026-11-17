@@ -6,18 +6,20 @@ from motorcycle_surface.publication_policy import (
     POLICY_VERSION,
     PublicationConfig,
     apply_publication,
-    unsupported_young_plateau_curves,
+    unsupported_adjacent_plateau_curves,
 )
 
 
 class AdjacentYearPlateauPolicyTests(unittest.TestCase):
-    def make_surface(self, *, young_n120=14, young_n30=5, use_price_mid=False,
+    def make_surface(self, *, age_pair=(3, 4), young_n120=14, young_n30=5,
+                     older_n120=687, older_n30=167, use_price_mid=False,
                      mismatch_bucket=None):
         rows = []
-        for age, n120, n30 in ((3, young_n120, young_n30), (4, 687, 167)):
+        for age, n120, n30 in ((age_pair[0], young_n120, young_n30),
+                               (age_pair[1], older_n120, older_n30)):
             for bucket in range(6):
                 mid = 700_000_000 - bucket * 10_000_000
-                if age == 3 and mismatch_bucket == bucket:
+                if age == age_pair[0] and mismatch_bucket == bucket:
                     mid *= 1.02
                 row = {
                     'motorcycle_model_id': '203',
@@ -48,7 +50,7 @@ class AdjacentYearPlateauPolicyTests(unittest.TestCase):
                 }
                 if use_price_mid:
                     row['price_mid'] = 700_000_000 - bucket * 10_000_000
-                    row['price_center'] = row['price_mid'] * (1.20 if age == 3 else 0.80)
+                    row['price_center'] = row['price_mid'] * (1.20 if age == age_pair[0] else 0.80)
                     row['adjusted_price'] = row['price_center']
                     row['reference_price'] = row['price_center']
                 rows.append(row)
@@ -60,23 +62,35 @@ class AdjacentYearPlateauPolicyTests(unittest.TestCase):
 
     def test_boundary_support_n30_five_holds_younger_duplicate_curve(self):
         surface = self.make_surface(young_n120=14, young_n30=5)
-        held = unsupported_young_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertIn(self.curve_key(3), held)
         self.assertNotIn(self.curve_key(4), held)
 
+    def test_age_zero_to_one_pair_is_checked(self):
+        surface = self.make_surface(age_pair=(0, 1))
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        self.assertIn(self.curve_key(0), held)
+
     def test_sufficient_30_day_support_preserves_curve(self):
         surface = self.make_surface(young_n120=14, young_n30=6)
-        held = unsupported_young_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertNotIn(self.curve_key(3), held)
+
+    def test_both_weak_curves_keep_the_better_supported_one(self):
+        surface = self.make_surface(young_n120=10, young_n30=3,
+                                    older_n120=5, older_n30=1)
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        self.assertNotIn(self.curve_key(3), held)
+        self.assertIn(self.curve_key(4), held)
 
     def test_only_middle_price_is_used_when_price_mid_exists(self):
         surface = self.make_surface(use_price_mid=True)
-        held = unsupported_young_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertIn(self.curve_key(3), held)
 
     def test_one_nonmatching_bucket_breaks_ninety_percent_tie_rule(self):
         surface = self.make_surface(mismatch_bucket=0)
-        held = unsupported_young_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
+        held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertNotIn(self.curve_key(3), held)
 
     def test_good_completed_oof_evidence_exempts_curve(self):
@@ -102,7 +116,7 @@ class AdjacentYearPlateauPolicyTests(unittest.TestCase):
                     'future_iqr_pct': 10,
                 })
         history = pd.DataFrame(history_rows)
-        held = unsupported_young_plateau_curves(surface, history, '2026-11-16')
+        held = unsupported_adjacent_plateau_curves(surface, history, '2026-11-16')
         self.assertNotIn(self.curve_key(3), held)
 
     def test_apply_publication_holds_entire_younger_curve_only(self):
@@ -117,6 +131,8 @@ class AdjacentYearPlateauPolicyTests(unittest.TestCase):
 
     def test_default_parameters_match_data_calibrated_boundary(self):
         cfg = PublicationConfig()
+        self.assertEqual(cfg.age_plateau_min_age, 0)
+        self.assertEqual(cfg.age_plateau_max_age, 13)
         self.assertEqual(cfg.age_plateau_n120_min, 20)
         self.assertEqual(cfg.age_plateau_n30_min, 6)
         self.assertEqual(cfg.age_plateau_price_rtol, 0.001)
