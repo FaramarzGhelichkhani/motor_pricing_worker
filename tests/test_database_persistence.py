@@ -98,6 +98,44 @@ class DatabasePersistenceTests(unittest.TestCase):
         self.assertEqual([row[0] for row in rows], ["0", "1", "2", "3", "4"])
         self.assertEqual({row[1] for row in rows}, {"run-123"})
 
+    def test_prepared_transaction_recovery_uses_sqlalchemy_xid_api(self):
+        events = []
+        expected_xid = "mps_run_0"
+
+        class FakeXid:
+            gtrid = expected_xid
+
+        xid = FakeXid()
+
+        class FakeConnection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def recover_twophase(self):
+                events.append(("recover",))
+                return [xid]
+
+            def commit_prepared(self, recovered_xid, recover=False):
+                events.append(("commit_prepared", recovered_xid, recover))
+
+            def rollback_prepared(self, recovered_xid, recover=False):
+                events.append(("rollback_prepared", recovered_xid, recover))
+
+        class FakeEngine:
+            def connect(self):
+                return FakeConnection()
+
+        self.assertTrue(
+            SurfaceDatabaseMixin._resolve_prepared(
+                FakeEngine(), expected_xid, "COMMIT"
+            )
+        )
+        self.assertEqual(events[0], ("recover",))
+        self.assertEqual(events[1], ("commit_prepared", xid, True))
+
     def test_two_phase_commit_prepares_every_database_before_any_commit(self):
         events = []
 
