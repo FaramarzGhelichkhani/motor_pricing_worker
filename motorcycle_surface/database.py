@@ -1,9 +1,10 @@
 """Bounded-memory PostgreSQL persistence for MotorcyclePriceSurface.
 
-COPY -> run-scoped persistent staging -> set-based history UPSERT -> surface
-DELETE/INSERT. A shared Engine uses one transaction; separate PostgreSQL
-Engines use durable two-phase commit coordinated from the crawler database.
-Crawler keeps full analytical payload; Production keeps approved cells only.
+Batched history UPSERT -> resolved snapshot IDs -> scoped surface DELETE ->
+streaming COPY directly into PriceSurface. A shared Engine uses one transaction;
+separate PostgreSQL Engines use durable two-phase commit coordinated from the
+crawler database. Crawler keeps full analytical payload; Production keeps
+approved cells only.
 """
 from __future__ import annotations
 
@@ -19,7 +20,8 @@ from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import MetaData, Table, inspect, text
+from sqlalchemy import MetaData, Table, bindparam, func, inspect, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 log = logging.getLogger(__name__)
 
@@ -164,9 +166,10 @@ def _as_copy_field(value):
 
 
 
+
 def _copy_rows(
     sa_conn, target_table, columns, records, buffer_rows=10000,
-    *, run_id=None, progress_label=None,
+    *, progress_label=None,
 ):
     """Bounded-memory PostgreSQL COPY using at most buffer_rows records."""
     if records is None:
@@ -191,7 +194,7 @@ def _copy_rows(
         for item in records:
             serialized = []
             for col in columns:
-                value = run_id if col == "_mps_run_id" else item.get(col)
+                value = item.get(col)
                 if value is None:
                     serialized.append("\\N")
                     continue
@@ -444,24 +447,21 @@ class SurfaceDatabaseMixin:
             records.append(record)
         return records
 
-    def _surface_records(self, target, s):
-        """Yield one row at a time; never materialize to_dict records."""
+
+    def _surface_records(self, target, s, snapshot_by_gid):
+        """Yield target-table rows with the resolved history foreign key."""
         positions = {name: s.columns.get_loc(name) for name in s.columns}
         p = positions
         for row in s.itertuples(index=False, name=None):
+            gid = row[p["_gid"]]
+            snapshot_id = snapshot_by_gid.get(gid)
+            if snapshot_id is None:
+                raise ValueError(f"Missing history snapshot ID for surface group: {gid}")
             age = row[p["age"]] if "age" in p else None
             bucket = row[p["mileage_bucket"]]
             condition = row[p["condition_tier"]]
-            cell_key = None
-            if target == "crawler":
-                cell_key = hashlib.md5(
-                    "\x1f".join([
-                        str(_int(age)), str(_int(bucket)),
-                        str(_int(condition)), "مشکی",
-                    ]).encode("utf-8")
-                ).hexdigest()
             record = dict(
-                _gid=row[p["_gid"]],
+                snapshot_id=int(snapshot_id),
                 motorcycle_model_id=_mid(row[p["motorcycle_model_id"]]),
                 year=_int(row[p["production_year"]]),
                 mileage_bucket=_int(bucket),
@@ -474,6 +474,12 @@ class SurfaceDatabaseMixin:
                 price_high=_money(row[p["suggested_upper"]]),
             )
             if target == "crawler":
+                cell_key = hashlib.md5(
+                    "\x1f".join([
+                        str(_int(age)), str(_int(bucket)),
+                        str(_int(condition)), "مشکی",
+                    ]).encode("utf-8")
+                ).hexdigest()
                 record.update(
                     real_brand=str(row[p["real_brand"]]),
                     real_model=str(row[p["real_model"]]),
@@ -491,6 +497,7 @@ class SurfaceDatabaseMixin:
                     mileage_clean=_num(row[p["mileage_clean"]]),
                 )
             yield record
+
 
     @staticmethod
     def _engine_fingerprint(engine):
@@ -703,8 +710,9 @@ class SurfaceDatabaseMixin:
                 [item["target"] for item in xid_items],
             )
 
+
     def _save_target(self, conn, target, run_id):
-        """Stage and persist one target inside the caller-owned transaction."""
+        """Persist one target directly in its caller-owned transaction."""
         started = time.perf_counter()
         history_df, surface_df = self._prepare_frames(target)
         _log_db_stage(
@@ -736,6 +744,10 @@ class SurfaceDatabaseMixin:
                 "seconds": round(time.perf_counter() - started, 2),
             }
 
+        schema_started = time.perf_counter()
+        h, _ = self._db_tables(conn, target)
+        _log_db_stage(target, "schema validated", schema_started)
+
         history_records = self._history_records(
             target, history_df, surface_df
         )
@@ -743,123 +755,95 @@ class SurfaceDatabaseMixin:
             raise ValueError(
                 f"{target}: non-empty surface has no matching history records"
             )
-        surface_columns = list(
-            next(self._surface_records(target, surface_df)).keys()
-        )
-        history_columns = list(history_records[0].keys())
-
-        schema_started = time.perf_counter()
-        h, _ = self._db_tables(conn, target)
-        history_stage = f"_mps_{target}_hist_stage"
-        surface_stage = f"_mps_{target}_surface_stage"
-        conn.exec_driver_sql(
-            f'CREATE TABLE IF NOT EXISTS "{history_stage}" '
-            f'AS SELECT * FROM "{HISTORY_NAME}" WITH NO DATA'
-        )
-        conn.exec_driver_sql(
-            f'CREATE TABLE IF NOT EXISTS "{surface_stage}" '
-            f'AS SELECT * FROM "{SURFACE_NAME}" WITH NO DATA'
-        )
-        for stage in (history_stage, surface_stage):
-            conn.exec_driver_sql(
-                f'ALTER TABLE "{stage}" '
-                'ADD COLUMN IF NOT EXISTS "_mps_run_id" uuid'
-            )
-        conn.exec_driver_sql(
-            f'ALTER TABLE "{surface_stage}" '
-            'ADD COLUMN IF NOT EXISTS "_gid" text'
-        )
-        conn.exec_driver_sql(
-            f'CREATE INDEX IF NOT EXISTS "{history_stage}_run_idx" '
-            f'ON "{history_stage}" ("_mps_run_id")'
-        )
-        conn.exec_driver_sql(
-            f'CREATE INDEX IF NOT EXISTS "{surface_stage}_run_idx" '
-            f'ON "{surface_stage}" ("_mps_run_id")'
-        )
-        _log_db_stage(target, "schema and staging ready", schema_started)
-
-        copy_started = time.perf_counter()
-        history_count = _copy_rows(
-            conn, history_stage,
-            history_columns + ["_mps_run_id"],
-            history_records, run_id=run_id,
-            progress_label=f"{target}/history",
-        )
-        surface_count = _copy_rows(
-            conn, surface_stage,
-            surface_columns + ["_mps_run_id"],
-            self._surface_records(target, surface_df),
-            run_id=run_id,
-            progress_label=f"{target}/surface",
-        )
-        if history_count != len(history_records) or surface_count != len(surface_df):
-            raise RuntimeError(
-                f"{target}: COPY row-count mismatch "
-                f"history={history_count}/{len(history_records)} "
-                f"surface={surface_count}/{len(surface_df)}"
-            )
-        _log_db_stage(
-            target, "COPY complete", copy_started,
-            history_rows=history_count, surface_rows=surface_count,
-        )
-
-        upsert_started = time.perf_counter()
+        history_columns = list(history_records[0])
         conflict = (
             ["date", "identity_key"] if target == "crawler"
             else ["date", "motorcycle_model_id", "is_copy", "model_variant"]
         )
-        updates = [c for c in history_columns if c not in conflict]
-        if "updated_at" in h.c:
-            updates.append("updated_at")
-        insert_cols = ", ".join(f'"{c}"' for c in history_columns)
-        conflict_cols = ", ".join(f'"{c}"' for c in conflict)
-        if updates:
-            update_sql = ", ".join(
-                f'"{column}" = '
-                + ("now()" if column == "updated_at"
-                   else f'EXCLUDED."{column}"')
-                for column in updates
-            )
-            conflict_sql = f"DO UPDATE SET {update_sql}"
-        else:
-            conflict_sql = "DO NOTHING"
-        conn.execute(
-            text(
-                f'INSERT INTO "{HISTORY_NAME}" ({insert_cols}) '
-                f'SELECT {insert_cols} FROM "{history_stage}" '
-                'WHERE "_mps_run_id" = :run_id AND TRUE '
-                f'ON CONFLICT ({conflict_cols}) {conflict_sql}'
-            ),
-            {"run_id": run_id},
-        )
-        _log_db_stage(target, "history UPSERT complete", upsert_started)
+        update_columns = [
+            column for column in history_columns if column not in conflict
+        ]
 
-        validate_started = time.perf_counter()
+        upsert_started = time.perf_counter()
+        for offset in range(0, len(history_records), 500):
+            batch = history_records[offset:offset + 500]
+            statement = pg_insert(h).values(batch)
+            update_values = {
+                column: statement.excluded[column]
+                for column in update_columns
+            }
+            if "updated_at" in h.c:
+                update_values["updated_at"] = func.now()
+            conflict_args = {
+                "index_elements": [h.c[column] for column in conflict]
+            }
+            if update_values:
+                statement = statement.on_conflict_do_update(
+                    **conflict_args, set_=update_values
+                )
+            else:
+                statement = statement.on_conflict_do_nothing(**conflict_args)
+            conn.execute(statement)
+        _log_db_stage(
+            target, "history UPSERT complete", upsert_started,
+            history_rows=len(history_records),
+        )
+
+        map_started = time.perf_counter()
         if target == "crawler":
-            matched = (
-                'h.identity_key = st._gid AND h.date = :asof'
-            )
+            rows = conn.execute(
+                text(
+                    f'SELECT id, identity_key FROM "{HISTORY_NAME}" '
+                    'WHERE date = :asof'
+                ),
+                {"asof": self.today},
+            ).fetchall()
+            id_by_key = {str(row[1]): int(row[0]) for row in rows}
+            snapshot_by_gid = {
+                gid: id_by_key[gid]
+                for gid in history_df["_gid"].to_numpy(dtype=object)
+                if gid in id_by_key
+            }
         else:
-            matched = (
-                "h.motorcycle_model_id = st.motorcycle_model_id "
-                "AND h.is_copy = st.is_copy "
-                "AND h.model_variant = st.model_variant "
-                "AND h.date = :asof"
-            )
-        absent = conn.execute(
-            text(
-                f'SELECT count(*) FROM "{surface_stage}" st '
-                f'LEFT JOIN "{HISTORY_NAME}" h ON {matched} '
-                'WHERE st."_mps_run_id" = :run_id AND h.id IS NULL'
-            ),
-            {"asof": self.today, "run_id": run_id},
-        ).scalar_one()
-        if absent:
+            rows = conn.execute(
+                text(
+                    f'SELECT id, motorcycle_model_id, is_copy, model_variant '
+                    f'FROM "{HISTORY_NAME}" WHERE date = :asof'
+                ),
+                {"asof": self.today},
+            ).fetchall()
+            id_by_key = {
+                (_mid(row[1]), _bool(row[2]), str(row[3])): int(row[0])
+                for row in rows
+            }
+            history_columns_for_map = list(history_df.columns)
+            positions = {
+                name: history_columns_for_map.index(name)
+                for name in (
+                    "_gid", "motorcycle_model_id", "is_copy", "model_variant"
+                )
+            }
+            snapshot_by_gid = {}
+            for row in history_df.itertuples(index=False, name=None):
+                key = (
+                    _mid(row[positions["motorcycle_model_id"]]),
+                    _bool(row[positions["is_copy"]]),
+                    str(row[positions["model_variant"]]),
+                )
+                snapshot_id = id_by_key.get(key)
+                if snapshot_id is not None:
+                    snapshot_by_gid[row[positions["_gid"]]] = snapshot_id
+
+        missing_snapshots = set(surface_df["_gid"]) - set(snapshot_by_gid)
+        if missing_snapshots:
             raise ValueError(
-                f"{target}: {absent} surfaces lack matching history snapshots"
+                f"{target}: {len(missing_snapshots)} surface groups lack "
+                "a persisted history snapshot ID"
             )
-        _log_db_stage(target, "history linkage validated", validate_started)
+        _log_db_stage(
+            target, "history snapshot IDs resolved", map_started,
+            snapshot_groups=len(snapshot_by_gid),
+        )
 
         delete_started = time.perf_counter()
         if target == "production":
@@ -867,68 +851,59 @@ class SurfaceDatabaseMixin:
                 f'DELETE FROM "{SURFACE_NAME}"'
             ).rowcount
         else:
-            deleted = conn.execute(
-                text(
-                    f'DELETE FROM "{SURFACE_NAME}" p '
-                    f'WHERE p.motorcycle_model_id IN ('
-                    f'SELECT DISTINCT motorcycle_model_id '
-                    f'FROM "{surface_stage}" '
-                    'WHERE "_mps_run_id" = :run_id '
-                    'AND motorcycle_model_id IS NOT NULL)'
-                ),
-                {"run_id": run_id},
-            ).rowcount
-            deleted += conn.execute(
-                text(
+            deleted = 0
+            model_ids = surface_df["motorcycle_model_id"].map(_mid)
+            ids = sorted({value for value in model_ids.dropna().tolist()})
+            null_gids = (
+                surface_df.loc[model_ids.isna(), "_gid"]
+                .drop_duplicates().tolist()
+            )
+            if ids:
+                delete_ids = text(
+                    f'DELETE FROM "{SURFACE_NAME}" '
+                    'WHERE motorcycle_model_id IN :ids'
+                ).bindparams(bindparam("ids", expanding=True))
+                deleted += conn.execute(delete_ids, {"ids": ids}).rowcount
+            if null_gids:
+                delete_null_ids = text(
                     f'DELETE FROM "{SURFACE_NAME}" p '
                     f'USING "{HISTORY_NAME}" oldh '
                     'WHERE p.snapshot_id = oldh.id '
                     'AND p.motorcycle_model_id IS NULL '
-                    'AND oldh.identity_key IN ('
-                    f'SELECT DISTINCT _gid FROM "{surface_stage}" '
-                    'WHERE "_mps_run_id" = :run_id '
-                    'AND motorcycle_model_id IS NULL)'
-                ),
-                {"run_id": run_id},
-            ).rowcount
+                    'AND oldh.identity_key IN :gids'
+                ).bindparams(bindparam("gids", expanding=True))
+                deleted += conn.execute(
+                    delete_null_ids, {"gids": null_gids}
+                ).rowcount
         _log_db_stage(
             target, "old surface rows deleted", delete_started,
             deleted=max(deleted, 0),
         )
 
-        insert_started = time.perf_counter()
-        selected = [column for column in surface_columns if column != "_gid"]
-        selected_sql = ", ".join(f'"{column}"' for column in selected)
-        source_sql = ", ".join(f'st."{column}"' for column in selected)
-        conn.execute(
-            text(
-                f'INSERT INTO "{SURFACE_NAME}" '
-                f'("snapshot_id", {selected_sql}) '
-                f'SELECT h.id, {source_sql} '
-                f'FROM "{surface_stage}" st '
-                f'JOIN "{HISTORY_NAME}" h ON {matched} '
-                'WHERE st."_mps_run_id" = :run_id'
-            ),
-            {"asof": self.today, "run_id": run_id},
+        copy_started = time.perf_counter()
+        surface_columns = list(
+            next(self._surface_records(
+                target, surface_df, snapshot_by_gid
+            )).keys()
         )
+        surface_count = _copy_rows(
+            conn, SURFACE_NAME, surface_columns,
+            self._surface_records(target, surface_df, snapshot_by_gid),
+            progress_label=f"{target}/surface/{run_id[:8]}",
+        )
+        if surface_count != len(surface_df):
+            raise RuntimeError(
+                f"{target}: surface COPY row-count mismatch "
+                f"{surface_count}/{len(surface_df)}"
+            )
         _log_db_stage(
-            target, "surface INSERT complete", insert_started,
+            target, "surface COPY complete", copy_started,
             inserted=surface_count,
         )
 
-        cleanup_started = time.perf_counter()
-        for stage in (history_stage, surface_stage):
-            conn.execute(
-                text(
-                    f'DELETE FROM "{stage}" WHERE "_mps_run_id" = :run_id'
-                ),
-                {"run_id": run_id},
-            )
-        _log_db_stage(target, "staging rows cleaned", cleanup_started)
-
         report = {
             "target": target,
-            "history_count": history_count,
+            "history_count": len(history_records),
             "deleted": max(deleted, 0),
             "inserted": surface_count,
             "motorcycle_count": int(
@@ -938,6 +913,7 @@ class SurfaceDatabaseMixin:
         }
         log.info("[DB][%s] READY TO COMMIT %s", target, report)
         return report
+
 
     def update_database(self):
         """Atomically publish crawler and production targets.

@@ -48,13 +48,15 @@ class DatabasePersistenceTests(unittest.TestCase):
         class Dummy(SurfaceDatabaseMixin):
             pass
 
-        records = list(Dummy()._surface_records("production", frame))
+        records = list(Dummy()._surface_records(
+            "production", frame, {"group-1": 42}
+        ))
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["motorcycle_model_id"], 203)
         self.assertEqual(records[0]["price_mid"], 700_000_000)
-        self.assertEqual(records[0]["_gid"], "group-1")
+        self.assertEqual(records[0]["snapshot_id"], 42)
 
-    def test_copy_rows_writes_bounded_batches_and_injects_run_id(self):
+    def test_copy_rows_writes_bounded_batches(self):
         class FakeCursor:
             def __init__(self):
                 self.calls = []
@@ -82,10 +84,9 @@ class DatabasePersistenceTests(unittest.TestCase):
         count = _copy_rows(
             sa_conn,
             "_mps_test_stage",
-            ["value", "_mps_run_id"],
+            ["value"],
             records,
             buffer_rows=2,
-            run_id="run-123",
             progress_label="unit-test",
         )
 
@@ -96,7 +97,6 @@ class DatabasePersistenceTests(unittest.TestCase):
             self.assertIn("COPY", statement)
             rows.extend(csv.reader(io.StringIO(payload)))
         self.assertEqual([row[0] for row in rows], ["0", "1", "2", "3", "4"])
-        self.assertEqual({row[1] for row in rows}, {"run-123"})
 
     def test_prepared_transaction_recovery_uses_sqlalchemy_xid_api(self):
         events = []
