@@ -231,7 +231,7 @@ def _plateau_curve_quality(surface: pd.DataFrame, history: pd.DataFrame, asof):
     return metrics
 
 
-def _compare_duplicate_curve_quality(a: dict, b: dict) -> int:
+def _compare_duplicate_curve_quality(a: dict, b: dict, market_dominance_ratio: float = 1.25) -> int:
     """Return 1 if a is stronger, -1 if b is stronger, 0 if indistinguishable.
 
     Exact-age OOF validation outranks unvalidated market support. Among two
@@ -344,7 +344,7 @@ def unsupported_adjacent_plateau_curves(
                     held.update([first, second])
                     continue
 
-                decision = _compare_duplicate_curve_quality(qa, qb)
+                decision = _compare_duplicate_curve_quality(qa, qb, market_dominance_ratio)
                 if decision > 0:
                     held.add(second)
                 elif decision < 0:
