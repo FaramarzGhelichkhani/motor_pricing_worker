@@ -211,7 +211,7 @@ class SurfaceDatabaseMixin:
         s["_gid"] = s.apply(_identity, axis=1)
         h["_gid"] = h.apply(_identity, axis=1)
         if target == "production":
-            if not s['policy_version'].eq('USED_RELEASE_FINAL_1_AGE_PLATEAU_GUARD_CANDIDATE').all():
+            if not s['policy_version'].eq('USED_RELEASE_FINAL_5_ALL_AGE_DUPLICATE_QUALITY_GUARD').all():
                 raise ValueError('Production requires USED_RELEASE_FINAL_1_AGE_PLATEAU_GUARD_CANDIDATE decisions for every row')
             if s['is_factory'].map(_bool).any():
                 raise ValueError('Factory rows must not be persisted to PriceSurface')
