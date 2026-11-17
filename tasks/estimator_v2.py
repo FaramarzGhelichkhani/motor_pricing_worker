@@ -12,6 +12,7 @@ from core.database import DjangoSession, SessionLocal
 from ml_engine._01_data_prep import DataPreprocessor
 from motorcycle_surface.core import MotorcyclePriceSurface, SurfaceConfig
 from motorcycle_surface.release_gate import validate_recent_oof_release
+from motorcycle_surface.publication_policy import POLICY_VERSION
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -80,7 +81,7 @@ def run_price_estimation_pipeline():
         # Only the market-risk policy is allowed to set is_reliable.
         if surface.empty:
             raise ValueError("Empty surface: database not updated")
-        if not surface["policy_version"].eq("USED_RELEASE_FINAL_1_AGE_PLATEAU_GUARD_CANDIDATE").all():
+        if not surface["policy_version"].eq(POLICY_VERSION).all():
             raise ValueError("market-risk publication policy was not applied")
         if not surface["is_reliable"].equals(surface["publication_allowed"]):
             raise ValueError("is_reliable does not match market-risk publication decision")

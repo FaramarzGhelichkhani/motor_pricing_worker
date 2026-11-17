@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_1_AGE_PLATEAU_GUARD_CANDIDATE'
+POLICY_VERSION = 'USED_RELEASE_FINAL_5_ALL_AGE_DUPLICATE_QUALITY_GUARD'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -39,9 +39,16 @@ class PublicationConfig:
     min_future_days: int = 2
     max_future_iqr_pct: float = 20.0
     age_plateau_guard_enabled: bool = True
-    age_plateau_max_age: int = 3
-    age_plateau_n120_min: int = 20
-    age_plateau_n30_min: int = 5
+    # All distinct production ages are compared; quality decides which full
+    # curve is held, and indistinguishable pairs are both held.
+    age_plateau_price_rtol: float = 0.01
+    age_plateau_min_matching_buckets: int = 3
+    age_plateau_min_pair_tie_share: float = 0.90
+    age_plateau_market_dominance_ratio: float = 1.25
+    # A market-supported winner must clear both absolute support floors.
+    # Relative ratios alone are unsafe when the competing curve has zero ads.
+    age_plateau_winner_min_n120: float = 20.0
+    age_plateau_winner_min_n30: float = 6.0
 
 
 def _norm(df):
@@ -144,72 +151,271 @@ def confirmed_20pct_curves(history, asof, cfg: PublicationConfig):
 
 
 
-"""Research candidate: suppress weakly evidenced *young* ages within age plateaus.
-Uses the public data contract from production publication_policy.py; no web, no future leakage.
-"""
-import numpy as np,pandas as pd
+def _mid_price_column(frame: pd.DataFrame) -> str:
+    """Return the sole point-price field used by adjacent-year comparisons.
+
+    Newer schemas may call it ``price_mid``; the current production surface
+    calls the same central estimate ``price_center``. Bounds are never used.
+    """
+    if 'price_mid' in frame.columns:
+        return 'price_mid'
+    if 'price_center' in frame.columns:
+        return 'price_center'
+    raise ValueError('Adjacent-year plateau guard requires price_mid/price_center')
 
 
-"""Research candidate: suppress weakly evidenced *young* ages within age plateaus.
-Uses the public data contract from production publication_policy.py; no web, no future leakage.
-"""
-import numpy as np,pandas as pd
+def _plateau_curve_quality(surface: pd.DataFrame, history: pd.DataFrame, asof):
+    """Build independent quality evidence for each complete age/condition curve.
+
+    OOF evidence is exact to model, variant, age, condition and mileage cell.
+    Market support is summarized per curve so every curve is compared on the
+    same evidence dimensions. No information about the duplicate partner enters
+    this quality calculation.
+    """
+    metrics = {}
+    base = surface.copy()
+    base['n120'] = pd.to_numeric(base['n120'], errors='coerce').fillna(0)
+    base['n30'] = pd.to_numeric(base['n30'], errors='coerce').fillna(0)
+    support = (base.groupby(CURVE, dropna=False)
+               .agg(n120=('n120', 'median'), n30=('n30', 'median'),
+                    bucket_count=('mileage_bucket', 'nunique'))
+               .reset_index())
+    for row in support.itertuples(index=False, name=None):
+        key = tuple(row[:len(CURVE)])
+        metrics[key] = {
+            'n120': float(row[-3]), 'n30': float(row[-2]),
+            'bucket_count': int(row[-1]),
+            'oof_evaluable': False, 'oof_valid': False,
+            'oof_n': 0, 'oof_weeks': 0,
+            'oof_mdape': np.nan, 'oof_max_ape': np.nan,
+        }
+
+    if history is None or history.empty:
+        return metrics
+
+    mid_col = _mid_price_column(history)
+    required = set(CURVE + ['asof', mid_col, 'actual_independent',
+                            'future_unique_ads', 'future_observed_days',
+                            'future_iqr_pct'])
+    missing = required - set(history.columns)
+    if missing:
+        raise ValueError(f'Missing exact-age OOF fields for duplicate-age quality: {sorted(missing)}')
+
+    hist = _norm(history)
+    hist['_origin'] = pd.to_datetime(hist['asof'], errors='coerce').dt.normalize()
+    cutoff = pd.Timestamp(asof).normalize() - pd.Timedelta(days=7)
+    hist = hist.loc[hist['_origin'].notna() & hist['_origin'].le(cutoff)].copy()
+    for col in [mid_col, 'actual_independent', 'future_unique_ads',
+                'future_observed_days', 'future_iqr_pct']:
+        hist[col] = pd.to_numeric(hist[col], errors='coerce')
+    hist = hist.loc[
+        hist[mid_col].gt(0) & hist['actual_independent'].gt(0) &
+        np.isfinite(hist[mid_col]) & np.isfinite(hist['actual_independent']) &
+        hist['future_unique_ads'].ge(3) & hist['future_observed_days'].ge(2) &
+        hist['future_iqr_pct'].between(0, 20)
+    ].copy()
+    if hist.empty:
+        return metrics
+
+    hist = hist.sort_values('_origin').drop_duplicates(['_origin'] + CELL, keep='last')
+    hist['_ape'] = 100.0 * (hist[mid_col] / hist['actual_independent'] - 1.0).abs()
+    evidence = (hist.groupby(CURVE, dropna=False)
+                .agg(oof_n=('_ape', 'size'), oof_weeks=('_origin', 'nunique'),
+                     oof_mdape=('_ape', 'median'), oof_max_ape=('_ape', 'max'))
+                .reset_index())
+    for row in evidence.itertuples(index=False, name=None):
+        key = tuple(row[:len(CURVE)])
+        if key not in metrics:
+            continue
+        n, weeks, mdape, max_ape = row[-4:]
+        metrics[key].update({
+            'oof_n': int(n), 'oof_weeks': int(weeks),
+            'oof_mdape': float(mdape), 'oof_max_ape': float(max_ape),
+            'oof_evaluable': bool(n >= 3 and weeks >= 2),
+            'oof_valid': bool(n >= 3 and weeks >= 2 and mdape <= 8 and max_ape <= 20),
+        })
+    return metrics
 
 
-def unsupported_young_plateau_curves(d,history,asof,*, max_age=3,price_rtol=.001,
-                                     min_matching_buckets=3,min_pair_tie_share=.90,
-                                     n120_min=20,n30_min=5):
-    required=set(CELL+['price_center','n120','n30','publication_allowed'])
-    miss=required-set(d.columns)
-    if miss:raise ValueError(f'Young-age plateau gate requires {sorted(miss)}')
-    live=d[d.publication_allowed.astype(bool)].copy()
-    if live.empty:return set()
-    young=live[(live.age>=1)&(live.age<=max_age+1)].copy()
-    pair=young[CELL+['price_center']].copy()
-    pair['age']-=1
-    pair=young.merge(pair.rename(columns={'price_center':'older_price'}),on=CELL,how='inner',validate='one_to_one')
-    pair=pair[(pair.age>=1)&(pair.age<=max_age)]
-    if pair.empty:return set()
-    pair['_near_equal']=((pair['price_center']/pair['older_price']-1).abs()<=price_rtol)
-    key=GROUP+['condition_tier','age']
-    summary=pair.groupby(key,dropna=False,sort=False)['_near_equal'].agg(['sum','count']).reset_index()
-    suspect=summary[(summary['count']>=min_matching_buckets)&(summary['sum']/summary['count']>=min_pair_tie_share)]
-    keys=set()
-    for row in suspect.itertuples(index=False):
-        group_values=[getattr(row,c) for c in GROUP]
-        keys.add(tuple(group_values+[int(row.age),int(row.condition_tier)]))
-        keys.add(tuple(group_values+[int(row.age)+1,int(row.condition_tier)]))
-    if not keys:return set()
-    young_curves=live[live.age.between(1,max_age)].groupby(CURVE,dropna=False).agg(n120=('n120','median'),n30=('n30','median')).reset_index()
-    weak=young_curves[(young_curves.n120<n120_min)&(young_curves.n30<n30_min)]
-    candidates=set(map(tuple,weak[CURVE].itertuples(index=False,name=None))) & keys
-    if not candidates:return set()
-    # If this exact age/condition has independent stable evidence in >=2
-    # completed weekly origins, keep it despite weak recent support.
-    certified=set()
-    if history is not None and len(history):
-        needed=set(CURVE+['asof','price_center','actual_independent',
-                         'future_unique_ads','future_observed_days','future_iqr_pct'])
-        if not needed.issubset(history.columns):
-            raise ValueError('Missing exact-age OOF fields in history for plateau guard')
-        hist=_norm(history)
-        hist['_origin']=pd.to_datetime(hist['asof'],errors='coerce').dt.normalize()
-        cutoff=pd.Timestamp(asof).normalize()-pd.Timedelta(days=7)
-        hist=hist[hist['_origin'].notna()&hist['_origin'].le(cutoff)].copy()
-        for c in ['price_center','actual_independent','future_unique_ads','future_observed_days','future_iqr_pct']:
-            hist[c]=pd.to_numeric(hist[c],errors='coerce')
-        hist=hist[hist.price_center.gt(0)&hist.actual_independent.gt(0)&
-                  hist.future_unique_ads.ge(3)&hist.future_observed_days.ge(2)&
-                  hist.future_iqr_pct.between(0,20)].copy()
-        if not hist.empty:
-            hist=hist.drop_duplicates(['_origin']+CELL)
-            hist['_ape']=100*(hist.price_center/hist.actual_independent-1).abs()
-            ev=hist.groupby(CURVE,dropna=False).agg(
-                n=('_ape','size'),weeks=('_origin','nunique'),
-                mdape=('_ape','median'),max_ape=('_ape','max')).reset_index()
-            cert=ev[(ev.n>=3)&(ev.weeks>=2)&(ev.mdape<=8)&(ev.max_ape<=20)]
-            certified=set(map(tuple,cert[CURVE].itertuples(index=False,name=None)))
-    return candidates-certified
+def _compare_duplicate_curve_quality(
+    a: dict,
+    b: dict,
+    market_dominance_ratio: float = 1.25,
+    winner_min_n120: float = 20.0,
+    winner_min_n30: float = 6.0,
+) -> int:
+    """Return 1 if a is stronger, -1 if b is stronger, 0 if indistinguishable.
+
+    Quality is decided independently of similarity. Exact-age OOF evidence has
+    priority. Market evidence can decide only when one curve clears absolute
+    support floors AND dominates the other in both time windows. This avoids
+    false wins caused by a zero denominator (e.g. 1 ad versus 0 ads).
+    """
+    av, bv = bool(a.get('oof_valid', False)), bool(b.get('oof_valid', False))
+    ae, be = bool(a.get('oof_evaluable', False)), bool(b.get('oof_evaluable', False))
+
+    # A curve with a qualifying exact-age OOF certificate wins over one without.
+    if av != bv:
+        return 1 if av else -1
+
+    def oof_better(x, y):
+        """Material OOF advantage without a worse extreme-error tail."""
+        if not np.isfinite(x.get('oof_mdape', np.nan)) or not np.isfinite(y.get('oof_mdape', np.nan)):
+            return False
+        mdape_better = x['oof_mdape'] + 0.5 < y['oof_mdape']
+        max_not_worse = (
+            np.isfinite(x.get('oof_max_ape', np.nan)) and
+            np.isfinite(y.get('oof_max_ape', np.nan)) and
+            x['oof_max_ape'] <= y['oof_max_ape'] + 2.0
+        )
+        return bool(mdape_better and max_not_worse and x['oof_max_ape'] <= 20.0)
+
+    if ae and be:
+        # Two independently evaluable curves: use OOF only for a material,
+        # robust advantage. If both show >20% tail error, neither is a safe
+        # winner and both must be held.
+        a_max_bad = a['oof_max_ape'] > 20.0
+        b_max_bad = b['oof_max_ape'] > 20.0
+        if a_max_bad and b_max_bad:
+            return 0
+        if a_max_bad != b_max_bad:
+            return -1 if a_max_bad else 1
+        if oof_better(a, b):
+            return 1
+        if oof_better(b, a):
+            return -1
+    elif ae != be:
+        # A poor, independently evaluated curve cannot win merely on market
+        # counts. The unevaluated curve may win only with strong market proof.
+        evaluated = a if ae else b
+        if evaluated.get('oof_max_ape', np.inf) > 20.0:
+            pass  # let the market test select only the unevaluated side
+        elif evaluated.get('oof_mdape', np.inf) > 8.0:
+            pass
+        else:
+            # Evidence exists but does not meet the certificate criteria;
+            # absent a material comparison, do not infer a winner.
+            pass
+
+    # Market winner: require absolute recent and historical support first,
+    # then require a relative advantage in BOTH windows. The absolute floors
+    # make 1-vs-0 and other tiny-denominator comparisons non-decisive.
+    a_qualified = a['n120'] >= winner_min_n120 and a['n30'] >= winner_min_n30
+    b_qualified = b['n120'] >= winner_min_n120 and b['n30'] >= winner_min_n30
+    a_dom = (
+        a_qualified and
+        a['n120'] >= b['n120'] * market_dominance_ratio and
+        a['n30'] >= b['n30'] * market_dominance_ratio and
+        (a['n120'] > b['n120'] or a['n30'] > b['n30'])
+    )
+    b_dom = (
+        b_qualified and
+        b['n120'] >= a['n120'] * market_dominance_ratio and
+        b['n30'] >= a['n30'] * market_dominance_ratio and
+        (b['n120'] > a['n120'] or b['n30'] > a['n30'])
+    )
+
+    # If one curve has evaluable but failed OOF evidence, do not let that same
+    # curve win on market counts; only its unevaluated competitor can be kept.
+    if ae and not av:
+        a_dom = False
+    if be and not bv:
+        b_dom = False
+
+    if a_dom and not b_dom:
+        return 1
+    if b_dom and not a_dom:
+        return -1
+    return 0
+
+def unsupported_adjacent_plateau_curves(
+    d: pd.DataFrame,
+    history: pd.DataFrame,
+    asof,
+    *,
+    price_rtol: float = 0.01,
+    min_matching_buckets: int = 3,
+    min_pair_tie_share: float = 0.90,
+    market_dominance_ratio: float = 1.25,
+    winner_min_n120: float = 20.0,
+    winner_min_n30: float = 6.0,
+) -> set[tuple]:
+    """Hold weaker or indistinguishable curves whenever ANY two ages plateau.
+
+    Similarity only identifies pairs. It never decides which age is weak.
+    Quality is assessed independently for each complete curve using exact-age
+    OOF evidence first, then per-curve recent/120-day market support.
+
+    All age combinations are compared (not only adjacent ages). For every
+    similar pair, the weaker curve is held; if evidence cannot distinguish the
+    pair, BOTH are held. The returned keys are complete CURVE keys, so the
+    caller suppresses every mileage bucket of each held curve.
+    """
+    mid_col = _mid_price_column(d)
+    required = set(CELL + [mid_col, 'n120', 'n30', 'publication_allowed'])
+    missing = required - set(d.columns)
+    if missing:
+        raise ValueError(f'All-age plateau gate requires {sorted(missing)}')
+
+    live = d.loc[d.publication_allowed.fillna(False).astype(bool)].copy()
+    if live.empty:
+        return set()
+    live['age'] = pd.to_numeric(live['age'], errors='coerce')
+    live[mid_col] = pd.to_numeric(live[mid_col], errors='coerce')
+    live['mileage_bucket'] = pd.to_numeric(live['mileage_bucket'], errors='coerce')
+    live = live.loc[live['age'].notna() & live[mid_col].gt(0) &
+                    np.isfinite(live[mid_col]) & live['mileage_bucket'].notna()].copy()
+    if live.empty:
+        return set()
+
+    quality = _plateau_curve_quality(live, history, asof)
+    held = set()
+    compare_groups = GROUP + ['condition_tier']
+
+    # Grouping by model/variant/copy/condition prevents cross-variant or
+    # cross-condition comparisons. Every distinct age pair is examined.
+    for _, group in live.groupby(compare_groups, dropna=False, sort=False):
+        age_frames = {
+            age: frame[['mileage_bucket', mid_col]].rename(columns={mid_col: 'mid'})
+            for age, frame in group.groupby('age', sort=False)
+        }
+        ages = sorted(age_frames)
+        for i, age_a in enumerate(ages):
+            for age_b in ages[i + 1:]:
+                a = age_frames[age_a]
+                b = age_frames[age_b]
+                shared = a.merge(b, on='mileage_bucket', how='inner',
+                                 suffixes=('_a', '_b'), validate='one_to_one')
+                if len(shared) < min_matching_buckets:
+                    continue
+                near = (shared['mid_a'] / shared['mid_b'] - 1.0).abs().le(price_rtol)
+                if float(near.mean()) < min_pair_tie_share:
+                    continue
+
+                first = tuple(group.iloc[0][GROUP].tolist()) + (age_a, group.iloc[0]['condition_tier'])
+                second = tuple(group.iloc[0][GROUP].tolist()) + (age_b, group.iloc[0]['condition_tier'])
+                qa = quality.get(first)
+                qb = quality.get(second)
+                if qa is None or qb is None:
+                    # Missing quality evidence cannot justify keeping either
+                    # member of a duplicate pair.
+                    held.update([first, second])
+                    continue
+
+                decision = _compare_duplicate_curve_quality(
+                    qa, qb, market_dominance_ratio,
+                    winner_min_n120, winner_min_n30,
+                )
+                if decision > 0:
+                    held.add(second)
+                elif decision < 0:
+                    held.add(first)
+                else:
+                    held.update([first, second])
+
+    return held
+# Backward-compatible alias for scripts using the earlier helper name.
+unsupported_young_plateau_curves = unsupported_adjacent_plateau_curves
 
 
 def apply_publication(surface, asof, history, cfg: PublicationConfig = PublicationConfig()):
@@ -283,20 +489,22 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
         ['HOLD_INVALID_CURVE','HOLD_INCOMPLETE_CURVE','HOLD_OOF_SEVERE','HOLD_CONFIRMED_OVER_UNDER_20',
          'HOLD_WEAK_MODEL_MARKET','HOLD_WEAK_VARIANT_MARKET'],
         default='PUBLISH_OOF_CHECKED')
-    # Age plateaus are suspicious only where the exact young-age curve has
-    # little historical support and no independent completed-age OOF proof.
+    # All-age duplicate curves are resolved by independent per-curve quality evidence.
     d['age_plateau_held'] = False
     if cfg.age_plateau_guard_enabled:
-        plateau_held = unsupported_young_plateau_curves(
+        plateau_held = unsupported_adjacent_plateau_curves(
             d, history, asof,
-            max_age=cfg.age_plateau_max_age,
-            n120_min=cfg.age_plateau_n120_min,
-            n30_min=cfg.age_plateau_n30_min,
+            price_rtol=cfg.age_plateau_price_rtol,
+            min_matching_buckets=cfg.age_plateau_min_matching_buckets,
+            min_pair_tie_share=cfg.age_plateau_min_pair_tie_share,
+            market_dominance_ratio=cfg.age_plateau_market_dominance_ratio,
+            winner_min_n120=cfg.age_plateau_winner_min_n120,
+            winner_min_n30=cfg.age_plateau_winner_min_n30,
         )
         held = curvekey.isin(plateau_held)
         d.loc[held, 'age_plateau_held'] = True
         d.loc[held, ['publication_allowed', 'is_reliable']] = False
-        d.loc[held, 'publication_status'] = 'HOLD_YOUNG_AGE_PLATEAU_WEAK_EVIDENCE'
+        d.loc[held, 'publication_status'] = 'HOLD_DUPLICATE_AGE_WEAKER_OR_TIED_QUALITY'
     unseen=d.oof_n.eq(0) & d.publication_allowed
     d.loc[unseen,'publication_status']='PUBLISH_MARKET_SUPPORTED_UNTESTED'
     d['publication_reason_code']=d['publication_status']
