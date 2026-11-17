@@ -27,7 +27,10 @@ def product_order_min_closure(values, coordinates):
     # The old ordered scan treats equal coordinates sequentially: the first
     # duplicate is not lowered by later duplicates. Keep that exact behavior
     # for malformed/non-unique inputs rather than silently changing semantics.
-    if np.unique(coords, axis=0).shape[0] != len(coords):
+    if (
+        not np.isfinite(values).all()
+        or np.unique(coords, axis=0).shape[0] != len(coords)
+    ):
         result = values.copy()
         order = np.lexsort((coords[:, 2], coords[:, 1], coords[:, 0]))
         for position, index in enumerate(order):
