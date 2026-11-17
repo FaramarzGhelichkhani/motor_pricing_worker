@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_1_AGE_PLATEAU_GUARD_CANDIDATE'
+POLICY_VERSION = 'USED_RELEASE_FINAL_2_MID_ONLY_AGE_PLATEAU'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -39,9 +39,17 @@ class PublicationConfig:
     min_future_days: int = 2
     max_future_iqr_pct: float = 20.0
     age_plateau_guard_enabled: bool = True
+    # Compare adjacent young production years (age 1..3 against the next older age).
     age_plateau_max_age: int = 3
+    # Only the middle price is used for plateau detection. price_center is the
+    # current surface schema's equivalent of price_mid.
+    age_plateau_price_rtol: float = 0.001  # 0.1% relative difference
+    age_plateau_min_matching_buckets: int = 3
+    age_plateau_min_pair_tie_share: float = 0.90
     age_plateau_n120_min: int = 20
-    age_plateau_n30_min: int = 5
+    # Strictly less than 6: data shows n30=5 is still weak support. This fixes
+    # the observed Honda Click 150 1402/1401 boundary case (n120=14, n30=5).
+    age_plateau_n30_min: int = 6
 
 
 def _norm(df):
@@ -144,73 +152,149 @@ def confirmed_20pct_curves(history, asof, cfg: PublicationConfig):
 
 
 
-"""Research candidate: suppress weakly evidenced *young* ages within age plateaus.
-Uses the public data contract from production publication_policy.py; no web, no future leakage.
-"""
-import numpy as np,pandas as pd
+def _mid_price_column(frame: pd.DataFrame) -> str:
+    """Return the sole point-price field used by adjacent-year comparisons.
+
+    Newer schemas may call it ``price_mid``; the current production surface
+    calls the same central estimate ``price_center``. Bounds are never used.
+    """
+    if 'price_mid' in frame.columns:
+        return 'price_mid'
+    if 'price_center' in frame.columns:
+        return 'price_center'
+    raise ValueError('Adjacent-year plateau guard requires price_mid/price_center')
 
 
-"""Research candidate: suppress weakly evidenced *young* ages within age plateaus.
-Uses the public data contract from production publication_policy.py; no web, no future leakage.
-"""
-import numpy as np,pandas as pd
+def unsupported_young_plateau_curves(
+    d: pd.DataFrame,
+    history: pd.DataFrame,
+    asof,
+    *,
+    max_age: int = 3,
+    price_rtol: float = 0.001,
+    min_matching_buckets: int = 3,
+    min_pair_tie_share: float = 0.90,
+    n120_min: int = 20,
+    n30_min: int = 6,
+) -> set[tuple]:
+    """Return weakly supported curves that duplicate an adjacent production year.
 
+    The comparison is performed only on the middle price (price_mid or this
+    pipeline's equivalent price_center). A pair is a plateau when at least
+    min_matching_buckets shared mileage buckets exist and at least
+    min_pair_tie_share of those prices differ by no more than price_rtol.
 
-def unsupported_young_plateau_curves(d,history,asof,*, max_age=3,price_rtol=.001,
-                                     min_matching_buckets=3,min_pair_tie_share=.90,
-                                     n120_min=20,n30_min=5):
-    required=set(CELL+['price_center','n120','n30','publication_allowed'])
-    miss=required-set(d.columns)
-    if miss:raise ValueError(f'Young-age plateau gate requires {sorted(miss)}')
-    live=d[d.publication_allowed.astype(bool)].copy()
-    if live.empty:return set()
-    young=live[(live.age>=1)&(live.age<=max_age+1)].copy()
-    pair=young[CELL+['price_center']].copy()
-    pair['age']-=1
-    pair=young.merge(pair.rename(columns={'price_center':'older_price'}),on=CELL,how='inner',validate='one_to_one')
-    pair=pair[(pair.age>=1)&(pair.age<=max_age)]
-    if pair.empty:return set()
-    pair['_near_equal']=((pair['price_center']/pair['older_price']-1).abs()<=price_rtol)
-    key=GROUP+['condition_tier','age']
-    summary=pair.groupby(key,dropna=False,sort=False)['_near_equal'].agg(['sum','count']).reset_index()
-    suspect=summary[(summary['count']>=min_matching_buckets)&(summary['sum']/summary['count']>=min_pair_tie_share)]
-    keys=set()
-    for row in suspect.itertuples(index=False):
-        group_values=[getattr(row,c) for c in GROUP]
-        keys.add(tuple(group_values+[int(row.age),int(row.condition_tier)]))
-        keys.add(tuple(group_values+[int(row.age)+1,int(row.condition_tier)]))
-    if not keys:return set()
-    young_curves=live[live.age.between(1,max_age)].groupby(CURVE,dropna=False).agg(n120=('n120','median'),n30=('n30','median')).reset_index()
-    weak=young_curves[(young_curves.n120<n120_min)&(young_curves.n30<n30_min)]
-    candidates=set(map(tuple,weak[CURVE].itertuples(index=False,name=None))) & keys
-    if not candidates:return set()
-    # If this exact age/condition has independent stable evidence in >=2
-    # completed weekly origins, keep it despite weak recent support.
-    certified=set()
+    Either side can be held only when its age is within the guarded range
+    (1..max_age) and its median per-bucket support is weak in BOTH the 120-day
+    and 30-day windows. A better-supported neighbor is retained. Independent,
+    completed OOF evidence can exempt a curve from the hold.
+    """
+    mid_col = _mid_price_column(d)
+    required = set(CELL + [mid_col, 'n120', 'n30', 'publication_allowed'])
+    missing = required - set(d.columns)
+    if missing:
+        raise ValueError(f'Young-age plateau gate requires {sorted(missing)}')
+
+    live = d.loc[d.publication_allowed.fillna(False).astype(bool)].copy()
+    if live.empty:
+        return set()
+    live['age'] = pd.to_numeric(live['age'], errors='coerce')
+    live[mid_col] = pd.to_numeric(live[mid_col], errors='coerce')
+    live['n120'] = pd.to_numeric(live['n120'], errors='coerce').fillna(0)
+    live['n30'] = pd.to_numeric(live['n30'], errors='coerce').fillna(0)
+    live = live.loc[live['age'].notna()]
+
+    # Align age a with age a+1 by shifting the latter's age down one year.
+    # A merge on the full cell key ensures only shared mileage buckets compare.
+    young = live.loc[live['age'].between(1, max_age + 1), CELL + [mid_col]].copy()
+    if young.empty:
+        return set()
+    older = young.copy()
+    older['age'] = older['age'] - 1
+    older = older.rename(columns={mid_col: 'older_mid'})
+    pair = young.merge(older, on=CELL, how='inner', validate='one_to_one')
+    pair = pair.loc[pair['age'].between(1, max_age)].copy()
+    if pair.empty:
+        return set()
+
+    pair['older_mid'] = pd.to_numeric(pair['older_mid'], errors='coerce')
+    pair[mid_col] = pd.to_numeric(pair[mid_col], errors='coerce')
+    valid_prices = (pair[mid_col].gt(0) & pair['older_mid'].gt(0) &
+                    np.isfinite(pair[mid_col]) & np.isfinite(pair['older_mid']))
+    pair = pair.loc[valid_prices].copy()
+    if pair.empty:
+        return set()
+    pair['_near_equal'] = (pair[mid_col] / pair['older_mid'] - 1.0).abs().le(price_rtol)
+
+    key = GROUP + ['condition_tier', 'age']
+    summary = (pair.groupby(key, dropna=False, sort=False)['_near_equal']
+               .agg(matches='sum', buckets='count').reset_index())
+    suspect = summary.loc[
+        summary['buckets'].ge(min_matching_buckets) &
+        (summary['matches'] / summary['buckets']).ge(min_pair_tie_share)
+    ]
+    if suspect.empty:
+        return set()
+
+    # A side is eligible only if its own age is inside the guarded young-age
+    # range and its own support is weak. A better-supported neighbor survives.
+    keys = set()
+    for row in suspect[GROUP + ['age', 'condition_tier']].itertuples(index=False, name=None):
+        group_values, younger_age, condition = row[:-2], int(row[-2]), row[-1]
+        keys.add(tuple(group_values) + (younger_age, condition))
+        keys.add(tuple(group_values) + (younger_age + 1, condition))
+
+    young_curves = (live.loc[live['age'].between(1, max_age)]
+                    .groupby(CURVE, dropna=False)
+                    .agg(n120=('n120', 'median'), n30=('n30', 'median'))
+                    .reset_index())
+    weak = young_curves.loc[
+        young_curves['n120'].lt(n120_min) & young_curves['n30'].lt(n30_min)
+    ]
+    candidates = set(map(tuple, weak[CURVE].itertuples(index=False, name=None))) & keys
+    if not candidates:
+        return set()
+
+    # Exact-age OOF evidence is an exemption, not a requirement for publication.
+    # Only completed weekly origins are considered; current/future targets cannot leak.
+    certified = set()
     if history is not None and len(history):
-        needed=set(CURVE+['asof','price_center','actual_independent',
-                         'future_unique_ads','future_observed_days','future_iqr_pct'])
+        hist_mid_col = _mid_price_column(history)
+        needed = set(CURVE + [
+            'asof', hist_mid_col, 'actual_independent', 'future_unique_ads',
+            'future_observed_days', 'future_iqr_pct',
+        ])
         if not needed.issubset(history.columns):
             raise ValueError('Missing exact-age OOF fields in history for plateau guard')
-        hist=_norm(history)
-        hist['_origin']=pd.to_datetime(hist['asof'],errors='coerce').dt.normalize()
-        cutoff=pd.Timestamp(asof).normalize()-pd.Timedelta(days=7)
-        hist=hist[hist['_origin'].notna()&hist['_origin'].le(cutoff)].copy()
-        for c in ['price_center','actual_independent','future_unique_ads','future_observed_days','future_iqr_pct']:
-            hist[c]=pd.to_numeric(hist[c],errors='coerce')
-        hist=hist[hist.price_center.gt(0)&hist.actual_independent.gt(0)&
-                  hist.future_unique_ads.ge(3)&hist.future_observed_days.ge(2)&
-                  hist.future_iqr_pct.between(0,20)].copy()
-        if not hist.empty:
-            hist=hist.drop_duplicates(['_origin']+CELL)
-            hist['_ape']=100*(hist.price_center/hist.actual_independent-1).abs()
-            ev=hist.groupby(CURVE,dropna=False).agg(
-                n=('_ape','size'),weeks=('_origin','nunique'),
-                mdape=('_ape','median'),max_ape=('_ape','max')).reset_index()
-            cert=ev[(ev.n>=3)&(ev.weeks>=2)&(ev.mdape<=8)&(ev.max_ape<=20)]
-            certified=set(map(tuple,cert[CURVE].itertuples(index=False,name=None)))
-    return candidates-certified
 
+        hist = _norm(history)
+        hist['_origin'] = pd.to_datetime(hist['asof'], errors='coerce').dt.normalize()
+        cutoff = pd.Timestamp(asof).normalize() - pd.Timedelta(days=7)
+        hist = hist.loc[hist['_origin'].notna() & hist['_origin'].le(cutoff)].copy()
+        for col in [hist_mid_col, 'actual_independent', 'future_unique_ads',
+                    'future_observed_days', 'future_iqr_pct']:
+            hist[col] = pd.to_numeric(hist[col], errors='coerce')
+        hist = hist.loc[
+            hist[hist_mid_col].gt(0) & hist['actual_independent'].gt(0) &
+            hist['future_unique_ads'].ge(3) & hist['future_observed_days'].ge(2) &
+            hist['future_iqr_pct'].between(0, 20)
+        ].copy()
+        if not hist.empty:
+            hist = hist.sort_values('_origin').drop_duplicates(['_origin'] + CELL)
+            hist['_ape'] = 100 * (
+                hist[hist_mid_col] / hist['actual_independent'] - 1.0
+            ).abs()
+            evidence = (hist.groupby(CURVE, dropna=False)
+                        .agg(n=('_ape', 'size'), weeks=('_origin', 'nunique'),
+                             mdape=('_ape', 'median'), max_ape=('_ape', 'max'))
+                        .reset_index())
+            good = evidence.loc[
+                evidence['n'].ge(3) & evidence['weeks'].ge(2) &
+                evidence['mdape'].le(8) & evidence['max_ape'].le(20)
+            ]
+            certified = set(map(tuple, good[CURVE].itertuples(index=False, name=None)))
+
+    return candidates - certified
 
 def apply_publication(surface, asof, history, cfg: PublicationConfig = PublicationConfig()):
     if surface is None or surface.empty:
@@ -290,6 +374,9 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
         plateau_held = unsupported_young_plateau_curves(
             d, history, asof,
             max_age=cfg.age_plateau_max_age,
+            price_rtol=cfg.age_plateau_price_rtol,
+            min_matching_buckets=cfg.age_plateau_min_matching_buckets,
+            min_pair_tie_share=cfg.age_plateau_min_pair_tie_share,
             n120_min=cfg.age_plateau_n120_min,
             n30_min=cfg.age_plateau_n30_min,
         )
