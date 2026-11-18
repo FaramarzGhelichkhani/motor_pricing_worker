@@ -507,22 +507,22 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
         d.loc[held, ['publication_allowed', 'is_reliable']] = False
         d.loc[held, 'publication_status'] = 'HOLD_DUPLICATE_AGE_WEAKER_OR_TIED_QUALITY'
 
-        # Fail closed: verify that no similar pair remains in the final
-        # publishable set after whole-curve suppression and key mapping.
-        remaining_plateau = unsupported_adjacent_plateau_curves(
-            d, history, asof,
-            price_rtol=cfg.age_plateau_price_rtol,
-            min_matching_buckets=cfg.age_plateau_min_matching_buckets,
-            min_pair_tie_share=cfg.age_plateau_min_pair_tie_share,
-            market_dominance_ratio=cfg.age_plateau_market_dominance_ratio,
-            winner_min_n120=cfg.age_plateau_winner_min_n120,
-            winner_min_n30=cfg.age_plateau_winner_min_n30,
+    # Fail closed even if the optional quality-selection pass is disabled:
+    # no policy configuration may return a publishable duplicate-age pair.
+    remaining_plateau = unsupported_adjacent_plateau_curves(
+        d, history, asof,
+        price_rtol=cfg.age_plateau_price_rtol,
+        min_matching_buckets=cfg.age_plateau_min_matching_buckets,
+        min_pair_tie_share=cfg.age_plateau_min_pair_tie_share,
+        market_dominance_ratio=cfg.age_plateau_market_dominance_ratio,
+        winner_min_n120=cfg.age_plateau_winner_min_n120,
+        winner_min_n30=cfg.age_plateau_winner_min_n30,
+    )
+    if remaining_plateau:
+        raise AssertionError(
+            'Similar age curves remain publishable after duplicate guard '
+            f'({len(remaining_plateau)} curves would still be held)'
         )
-        if remaining_plateau:
-            raise AssertionError(
-                'Similar age curves remain publishable after duplicate guard '
-                f'({len(remaining_plateau)} curves would still be held)'
-            )
     unseen=d.oof_n.eq(0) & d.publication_allowed
     d.loc[unseen,'publication_status']='PUBLISH_MARKET_SUPPORTED_UNTESTED'
     d['publication_reason_code']=d['publication_status']
