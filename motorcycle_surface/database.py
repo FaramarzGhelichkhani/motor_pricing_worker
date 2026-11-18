@@ -290,10 +290,10 @@ class SurfaceDatabaseMixin:
 
         if target == "production":
             if not source_s["policy_version"].eq(
-                "USED_RELEASE_FINAL_5_ALL_AGE_DUPLICATE_QUALITY_GUARD"
+                "USED_RELEASE_FINAL_6_ALL_AGE_DUPLICATE_QUALITY_GUARD_2PCT"
             ).all():
                 raise ValueError(
-                    "Production requires USED_RELEASE_FINAL_5_ALL_AGE_DUPLICATE_QUALITY_GUARD "
+                    "Production requires USED_RELEASE_FINAL_6_ALL_AGE_DUPLICATE_QUALITY_GUARD_2PCT "
                     "decisions for every row"
                 )
             if source_s["is_factory"].map(_bool).any():

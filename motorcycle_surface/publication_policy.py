@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_5_ALL_AGE_DUPLICATE_QUALITY_GUARD'
+POLICY_VERSION = 'USED_RELEASE_FINAL_6_ALL_AGE_DUPLICATE_QUALITY_GUARD_2PCT'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -41,7 +41,7 @@ class PublicationConfig:
     age_plateau_guard_enabled: bool = True
     # All distinct production ages are compared; quality decides which full
     # curve is held, and indistinguishable pairs are both held.
-    age_plateau_price_rtol: float = 0.01
+    age_plateau_price_rtol: float = 0.02
     age_plateau_min_matching_buckets: int = 3
     age_plateau_min_pair_tie_share: float = 0.90
     age_plateau_market_dominance_ratio: float = 1.25
@@ -333,7 +333,7 @@ def unsupported_adjacent_plateau_curves(
     history: pd.DataFrame,
     asof,
     *,
-    price_rtol: float = 0.01,
+    price_rtol: float = 0.02,
     min_matching_buckets: int = 3,
     min_pair_tie_share: float = 0.90,
     market_dominance_ratio: float = 1.25,
@@ -388,7 +388,8 @@ def unsupported_adjacent_plateau_curves(
                                  suffixes=('_a', '_b'), validate='one_to_one')
                 if len(shared) < min_matching_buckets:
                     continue
-                near = (shared['mid_a'] / shared['mid_b'] - 1.0).abs().le(price_rtol)
+                near = (np.maximum(shared['mid_a'], shared['mid_b']) /
+                        np.minimum(shared['mid_a'], shared['mid_b']) - 1.0).le(price_rtol)
                 if float(near.mean()) < min_pair_tie_share:
                     continue
 
@@ -505,6 +506,23 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
         d.loc[held, 'age_plateau_held'] = True
         d.loc[held, ['publication_allowed', 'is_reliable']] = False
         d.loc[held, 'publication_status'] = 'HOLD_DUPLICATE_AGE_WEAKER_OR_TIED_QUALITY'
+
+    # Fail closed even if the optional quality-selection pass is disabled:
+    # no policy configuration may return a publishable duplicate-age pair.
+    remaining_plateau = unsupported_adjacent_plateau_curves(
+        d, pd.DataFrame(), asof,
+        price_rtol=cfg.age_plateau_price_rtol,
+        min_matching_buckets=cfg.age_plateau_min_matching_buckets,
+        min_pair_tie_share=cfg.age_plateau_min_pair_tie_share,
+        market_dominance_ratio=cfg.age_plateau_market_dominance_ratio,
+        winner_min_n120=cfg.age_plateau_winner_min_n120,
+        winner_min_n30=cfg.age_plateau_winner_min_n30,
+    )
+    if remaining_plateau:
+        raise AssertionError(
+            'Similar age curves remain publishable after duplicate guard '
+            f'({len(remaining_plateau)} curves would still be held)'
+        )
     unseen=d.oof_n.eq(0) & d.publication_allowed
     d.loc[unseen,'publication_status']='PUBLISH_MARKET_SUPPORTED_UNTESTED'
     d['publication_reason_code']=d['publication_status']
