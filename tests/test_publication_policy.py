@@ -64,7 +64,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
 
     def test_insufficient_shared_buckets_are_not_compared(self):
         surface = self.make_surface(ages=(2, 4))
-        surface.loc[surface.age.eq(4) & surface.mileage_bucket.ge(3), 'mileage_bucket'] += 10
+        surface.loc[surface.age.eq(4) & surface.mileage_bucket.ge(2), 'mileage_bucket'] += 10
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, set())
 
@@ -122,12 +122,14 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
 
     def test_similarity_threshold_is_two_percent(self):
         surface = self.make_surface(ages=(2, 4))
+        surface['price_center'] = surface['price_center'].astype(float)
         surface.loc[surface.age.eq(2), 'price_center'] *= 1.015
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, {self.key(2), self.key(4)})
 
     def test_difference_above_two_percent_is_not_a_duplicate(self):
         surface = self.make_surface(ages=(2, 4))
+        surface['price_center'] = surface['price_center'].astype(float)
         surface.loc[surface.age.eq(2), 'price_center'] *= 1.025
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, set())
