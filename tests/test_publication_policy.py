@@ -171,6 +171,14 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
             surface, pd.DataFrame(history_rows), '2026-11-16')
         self.assertEqual(held, {self.key(2), self.key(4)})
 
+    def test_disabling_quality_selection_cannot_bypass_duplicate_invariant(self):
+        surface = self.make_surface(ages=(2, 4))
+        cfg = PublicationConfig(age_plateau_guard_enabled=False)
+        with self.assertRaisesRegex(
+            AssertionError, 'Similar age curves remain publishable'
+        ):
+            apply_publication(surface, '2026-11-16', pd.DataFrame(), cfg)
+
     def test_config_has_only_price_similarity_thresholds(self):
         cfg = PublicationConfig()
         self.assertEqual(cfg.age_plateau_price_rtol, 0.02)
