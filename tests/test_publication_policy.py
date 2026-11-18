@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -91,7 +92,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertTrue(published['age_plateau_held'].all())
         self.assertFalse(published['publication_allowed'].any())
         self.assertEqual(published['policy_version'].unique().tolist(),
-                         ['USED_RELEASE_FINAL_5_ALL_AGE_DUPLICATE_QUALITY_GUARD'])
+                         ['USED_RELEASE_FINAL_6_ALL_AGE_DUPLICATE_QUALITY_GUARD_2PCT'])
 
     def test_all_distinct_ages_are_compared(self):
         surface = self.make_surface(ages=(0, 3, 8))
@@ -114,22 +115,42 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, {self.key(4)})
 
-    def test_default_similarity_threshold_is_one_percent(self):
+    def test_default_similarity_threshold_is_two_percent(self):
         import inspect
         parameter = inspect.signature(unsupported_adjacent_plateau_curves).parameters['price_rtol']
-        self.assertEqual(parameter.default, 0.01)
+        self.assertEqual(parameter.default, 0.02)
 
-    def test_similarity_threshold_is_one_percent(self):
+    def test_similarity_threshold_is_two_percent(self):
         surface = self.make_surface(ages=(2, 4))
-        surface.loc[surface.age.eq(2), 'price_center'] *= 1.008
+        surface.loc[surface.age.eq(2), 'price_center'] *= 1.015
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, {self.key(2), self.key(4)})
 
-    def test_difference_above_one_percent_is_not_a_duplicate(self):
+    def test_difference_above_two_percent_is_not_a_duplicate(self):
         surface = self.make_surface(ages=(2, 4))
-        surface.loc[surface.age.eq(2), 'price_center'] *= 1.012
+        surface.loc[surface.age.eq(2), 'price_center'] *= 1.025
         held = unsupported_adjacent_plateau_curves(surface, pd.DataFrame(), '2026-11-16')
         self.assertEqual(held, set())
+
+    def test_similarity_threshold_is_symmetric(self):
+        surface = self.make_surface(ages=(2, 4))
+        # The older curve is 2.01% above the younger curve. A one-sided
+        # younger/older ratio would incorrectly call this less than 2%.
+        surface.loc[surface.age.eq(4), 'price_center'] *= 1.0201
+        held = unsupported_adjacent_plateau_curves(
+            surface, pd.DataFrame(), '2026-11-16')
+        self.assertEqual(held, set())
+
+    def test_apply_publication_fails_closed_if_a_duplicate_survives(self):
+        surface = self.make_surface(ages=(2, 4))
+        with patch(
+            'motorcycle_surface.publication_policy.unsupported_adjacent_plateau_curves',
+            side_effect=[set(), {self.key(2), self.key(4)}],
+        ):
+            with self.assertRaisesRegex(
+                AssertionError, 'Similar age curves remain publishable'
+            ):
+                apply_publication(surface, '2026-11-16', pd.DataFrame())
 
     def test_two_oof_curves_with_unacceptable_extreme_errors_are_both_held(self):
         surface = self.make_surface(ages=(2, 4), supports={2:(40,12), 4:(8,2)})
@@ -152,7 +173,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
 
     def test_config_has_only_price_similarity_thresholds(self):
         cfg = PublicationConfig()
-        self.assertEqual(cfg.age_plateau_price_rtol, 0.01)
+        self.assertEqual(cfg.age_plateau_price_rtol, 0.02)
         self.assertEqual(cfg.age_plateau_min_matching_buckets, 3)
         self.assertEqual(cfg.age_plateau_min_pair_tie_share, 0.90)
         self.assertEqual(cfg.age_plateau_market_dominance_ratio, 1.25)
