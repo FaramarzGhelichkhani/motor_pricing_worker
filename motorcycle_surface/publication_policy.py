@@ -510,7 +510,7 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
     # Fail closed even if the optional quality-selection pass is disabled:
     # no policy configuration may return a publishable duplicate-age pair.
     remaining_plateau = unsupported_adjacent_plateau_curves(
-        d, history, asof,
+        d, pd.DataFrame(), asof,
         price_rtol=cfg.age_plateau_price_rtol,
         min_matching_buckets=cfg.age_plateau_min_matching_buckets,
         min_pair_tie_share=cfg.age_plateau_min_pair_tie_share,
