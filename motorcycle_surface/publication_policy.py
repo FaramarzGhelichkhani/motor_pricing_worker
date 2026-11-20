@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_7_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_EVIDENCE'
+POLICY_VERSION = 'USED_RELEASE_FINAL_8_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_BIDIRECTIONAL_MARKET'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']

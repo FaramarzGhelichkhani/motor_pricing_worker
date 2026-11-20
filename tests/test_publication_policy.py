@@ -92,7 +92,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertTrue(published['age_plateau_held'].all())
         self.assertFalse(published['publication_allowed'].any())
         self.assertEqual(published['policy_version'].unique().tolist(),
-                         ['USED_RELEASE_FINAL_7_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_EVIDENCE'])
+                         ['USED_RELEASE_FINAL_8_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_BIDIRECTIONAL_MARKET'])
 
     def test_all_distinct_ages_are_compared(self):
         surface = self.make_surface(ages=(0, 3, 8))

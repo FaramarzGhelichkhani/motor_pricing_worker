@@ -1,14 +1,14 @@
 """Post-surface market-evidence veto for USED motorcycle prices.
 
-A price with *strong observed overpricing evidence* is not published. All
+A price with *strong observed overpricing or underpricing evidence* is not published. All
 mileage buckets of the same (identity, variant, age, condition) curve receive
 one decision. No direct ad is ever required for an unobserved bucket: the
 upstream Stage-1 age reference + Stage-2 residual remain its prediction, and
 upstream time-completed OOF model gates remain its validation.
 
 'Observed' means discrepancies to standardized asking prices before `asof`,
-not a guarantee about unobserved future transaction prices. All thresholds
-refer to prediction/asking-price ratios (positive => overprice).
+not a guarantee about unobserved future transaction prices. The existing
+overpricing thresholds remain unchanged; underpricing needs independent ads.
 """
 from __future__ import annotations
 import logging
@@ -24,6 +24,7 @@ MIN_ADS = 3
 MIN_DAYS = 2
 MAX_PRICE_IQR_PCT = 20.0
 OVERPRICE_RATIO = 1.20
+UNDERPRICE_RATIO = 0.80
 # Mixed-mileage evidence needs more observations than an exact cell.
 MIN_CURVE_ADS = 6
 MIN_CURVE_DAYS = 3
@@ -124,6 +125,126 @@ def detect_observed_over20(surface: pd.DataFrame, ads: pd.DataFrame, asof):
     return set(map(tuple,rejected[CURVE].itertuples(index=False,name=None))),evidence
 
 
+def detect_observed_under20(surface: pd.DataFrame, ads: pd.DataFrame, asof):
+    """Find underpriced curves only when independent recent market quotes agree.
+
+    Exact-cell proof mirrors the existing overprice thresholds: >=3 distinct
+    listings on >=2 days, quote IQR <=20%, and prediction <80% of BOTH the
+    market median and its lower quartile.  For mixed-mileage evidence, >=6
+    listings on >=3 days must have median and upper-quartile prediction/quote
+    ratios <0.80, with normalized ratio IQR <=30%.
+
+    A new token for the same advertised motorcycle is not a new observation.
+    Text and location fingerprints deliberately err toward *less* evidence;
+    they cannot prove different sellers without a reliable seller identifier.
+    """
+    if surface is None or surface.empty or ads is None or ads.empty:
+        return set(), pd.DataFrame()
+    if not {'date', 'token', 'price'}.issubset(ads):
+        raise ValueError('Missing date/token/price in cleaned used ads')
+    if 'price_center' not in surface:
+        raise ValueError('Missing final price_center')
+    if not {'title', 'description'}.intersection(ads.columns):
+        log.warning('Underprice guard skipped: no listing text for relist detection')
+        return set(), pd.DataFrame()
+
+    s = _normalize(surface[CELL + ['price_center']])
+    if s.duplicated(CELL).any():
+        raise ValueError('Duplicate surface cell coordinates')
+    s['price_center'] = pd.to_numeric(s.price_center, errors='coerce')
+    s = s[s.price_center.gt(0) & np.isfinite(s.price_center)]
+
+    optional = ['source', 'copy_label_suspicious', 'title', 'description',
+                'city', 'district', 'seller_type', 'mileage']
+    columns = list(dict.fromkeys(CELL + ['date', 'token', 'price'] +
+                                 [col for col in optional if col in ads]))
+    a = _normalize(ads.loc[:, columns])
+    if 'source' in a:
+        a = a[a.source.astype('string').str.lower().str.strip().eq('ads')]
+    if 'copy_label_suspicious' in a:
+        suspicious = pd.to_numeric(a.copy_label_suspicious, errors='coerce').fillna(0)
+        a = a[suspicious.eq(0)]
+    a['date'] = pd.to_datetime(a.date, errors='coerce').dt.normalize()
+    a['price'] = pd.to_numeric(a.price, errors='coerce')
+    end = pd.Timestamp(asof).normalize()
+    a = a.loc[
+        a.date.ge(end - pd.Timedelta(days=LOOKBACK_DAYS)) & a.date.lt(end) &
+        a.price.gt(0) & np.isfinite(a.price) & a.token.notna()
+    ].sort_values('date').drop_duplicates('token', keep='last').copy()
+    if a.empty or s.empty:
+        return set(), pd.DataFrame()
+
+    # Only the text needed to identify a repeated listing is retained.  Price
+    # is intentionally excluded: a seller repricing the same ad is still one
+    # observation.  Ads with no title AND no description cannot independently
+    # certify an underprice, since relisting cannot be ruled out.
+    signature_columns = CELL[:-1] + ['mileage_bucket']
+    signature = a[signature_columns].copy()
+    for col in ['title', 'description', 'city', 'district', 'seller_type']:
+        values = (a[col] if col in a else pd.Series('', index=a.index))
+        values = values.fillna('').astype(str).str.lower().str.replace(
+            r'\s+', ' ', regex=True).str.strip()
+        signature[col] = values.str.slice(0, 180) if col == 'description' else values
+    if 'mileage' in a:
+        signature['mileage'] = pd.to_numeric(a.mileage, errors='coerce').fillna(-1)
+    missing_text = signature.title.eq('') & signature.description.eq('')
+    if missing_text.any():
+        a = a.loc[~missing_text].copy()
+        signature = signature.loc[~missing_text].copy()
+    if a.empty:
+        return set(), pd.DataFrame()
+    a['_listing_fingerprint'] = pd.util.hash_pandas_object(signature, index=False).to_numpy()
+    original_count = len(a)
+    a = a.drop_duplicates('_listing_fingerprint', keep='last')
+
+    m = a.merge(s[CELL + ['price_center']], on=CELL, how='inner', validate='many_to_one')
+    if m.empty:
+        return set(), pd.DataFrame()
+    m['ratio'] = m.price_center / m.price
+
+    exact = m.groupby(CELL, dropna=False).agg(
+        ads_n=('token', 'nunique'), days_n=('date', 'nunique'),
+        median_ad=('price', 'median'),
+        q25_ad=('price', lambda z: z.quantile(.25)),
+        q75_ad=('price', lambda z: z.quantile(.75)),
+        prediction=('price_center', 'first'),
+    ).reset_index()
+    exact['iqr_pct'] = 100 * (exact.q75_ad - exact.q25_ad) / exact.median_ad
+    exact['proven'] = (
+        exact.ads_n.ge(MIN_ADS) & exact.days_n.ge(MIN_DAYS) &
+        exact.iqr_pct.le(MAX_PRICE_IQR_PCT) &
+        exact.prediction.lt(UNDERPRICE_RATIO * exact.median_ad) &
+        exact.prediction.lt(UNDERPRICE_RATIO * exact.q25_ad)
+    )
+
+    pooled = m.groupby(CURVE, dropna=False).agg(
+        ads_n=('token', 'nunique'), days_n=('date', 'nunique'),
+        median_ratio=('ratio', 'median'),
+        q25_ratio=('ratio', lambda z: z.quantile(.25)),
+        q75_ratio=('ratio', lambda z: z.quantile(.75)),
+    ).reset_index()
+    pooled['ratio_iqr_pct'] = (
+        100 * (pooled.q75_ratio - pooled.q25_ratio) / pooled.median_ratio
+    )
+    pooled['proven'] = (
+        pooled.ads_n.ge(MIN_CURVE_ADS) & pooled.days_n.ge(MIN_CURVE_DAYS) &
+        pooled.median_ratio.lt(UNDERPRICE_RATIO) &
+        pooled.q75_ratio.lt(UNDERPRICE_RATIO) &
+        pooled.ratio_iqr_pct.le(MAX_CURVE_RATIO_IQR_PCT)
+    )
+
+    ex = exact.loc[exact.proven, CELL + ['ads_n', 'days_n']]
+    pp = pooled.loc[pooled.proven, CURVE + ['ads_n', 'days_n']]
+    rejected = pd.concat([ex[CURVE], pp[CURVE]], ignore_index=True).drop_duplicates()
+    evidence = pd.concat([
+        ex[CURVE + ['ads_n', 'days_n']].assign(reason='EXACT_CELL_UNDER20'),
+        pp[CURVE + ['ads_n', 'days_n']].assign(reason='MULTI_BUCKET_CURVE_UNDER20'),
+    ], ignore_index=True)
+    log.info('Observed market under20: asof=%s matched=%s relisted=%s exact=%s pooled=%s curves=%s',
+             end.date(), len(m), original_count - len(a), len(ex), len(pp), len(rejected))
+    return set(map(tuple, rejected[CURVE].itertuples(index=False, name=None))), evidence
+
+
 def apply_recent_market_guard(surface: pd.DataFrame, ads: pd.DataFrame, asof) -> pd.DataFrame:
     """Veto confirmed bad complete curves; preserve upstream reliability/OOT checks."""
     needed = {'is_reliable','publication_allowed','publication_status','publication_reason_code'}
@@ -132,21 +253,30 @@ def apply_recent_market_guard(surface: pd.DataFrame, ads: pd.DataFrame, asof) ->
     if missing := needed - set(surface.columns):
         raise ValueError(f'Publication policy must run first: {sorted(missing)}')
     bad,_ = detect_observed_over20(surface,ads,asof)
+    # Keep the existing overprice veto and its evidence thresholds unchanged.
+    # The new underprice veto only needs to examine curves still publishable.
+    under,_ = detect_observed_under20(
+        surface.loc[surface.publication_allowed.astype(bool)], ads, asof)
     out=surface.copy()
-    if not bad:
+    if not bad and not under:
         return out
     normalized=_normalize(surface)
     held=normalized[CURVE].apply(tuple,axis=1).isin(bad).to_numpy()
+    under_held=normalized[CURVE].apply(tuple,axis=1).isin(under).to_numpy()
     newly=held & surface.publication_allowed.astype(bool).to_numpy()
-    out.loc[held,'publication_allowed']=False
-    out.loc[held,'is_reliable']=False
+    under_newly=under_held & ~held & surface.publication_allowed.astype(bool).to_numpy()
+    out.loc[held | under_held,'publication_allowed']=False
+    out.loc[held | under_held,'is_reliable']=False
     out.loc[newly,'publication_status']='HOLD_OBSERVED_OVER20'
     out.loc[newly,'publication_reason_code']='HOLD_OBSERVED_OVER20'
+    out.loc[under_newly,'publication_status']='HOLD_OBSERVED_UNDER20'
+    out.loc[under_newly,'publication_reason_code']='HOLD_OBSERVED_UNDER20'
     if not (out.is_reliable.astype(bool)==out.publication_allowed.astype(bool)).all():
         raise AssertionError('is_reliable differs from publication_allowed')
     if out.groupby(CURVE,dropna=False).publication_allowed.nunique().gt(1).any():
         raise AssertionError('Partial mileage curve in publication')
-    log.info('Observed market over20 blocked %d extra cells / %d curves',newly.sum(),len(bad))
+    log.info('Observed market over20 blocked %d extra cells / %d curves; under20 blocked %d extra cells / %d curves',
+             newly.sum(),len(bad),under_newly.sum(),len(under))
     return out
 
 # Public helper kept for scripts built against the prior guard module.
