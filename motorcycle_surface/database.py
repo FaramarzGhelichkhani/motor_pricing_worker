@@ -23,6 +23,8 @@ import pandas as pd
 from sqlalchemy import MetaData, Table, bindparam, func, inspect, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from .publication_policy import POLICY_VERSION
+
 log = logging.getLogger(__name__)
 
 GROUP = ["motorcycle_model_id", "real_brand", "real_model", "is_copy", "model_variant"]
@@ -289,12 +291,9 @@ class SurfaceDatabaseMixin:
         history_gids = _identity_values(source_h)
 
         if target == "production":
-            if not source_s["policy_version"].eq(
-                "USED_RELEASE_FINAL_6_ALL_AGE_DUPLICATE_QUALITY_GUARD_2PCT"
-            ).all():
+            if not source_s["policy_version"].eq(POLICY_VERSION).all():
                 raise ValueError(
-                    "Production requires USED_RELEASE_FINAL_6_ALL_AGE_DUPLICATE_QUALITY_GUARD_2PCT "
-                    "decisions for every row"
+                    f"Production requires {POLICY_VERSION} decisions for every row"
                 )
             if source_s["is_factory"].map(_bool).any():
                 raise ValueError(

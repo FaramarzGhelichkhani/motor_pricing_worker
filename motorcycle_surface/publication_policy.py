@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_6_ALL_AGE_DUPLICATE_QUALITY_GUARD_2PCT'
+POLICY_VERSION = 'USED_RELEASE_FINAL_7_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_EVIDENCE'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -49,6 +49,10 @@ class PublicationConfig:
     # Relative ratios alone are unsafe when the competing curve has zero ads.
     age_plateau_winner_min_n120: float = 20.0
     age_plateau_winner_min_n30: float = 6.0
+    # Do not publish age-zero prices with no ads in 30 days and fewer than
+    # five ads in 120 days, even when other ages passed model-level OOF.
+    current_year_evidence_guard_enabled: bool = True
+    current_year_min_n120_without_recent_ads: int = 5
 
 
 def _norm(df):
@@ -422,7 +426,7 @@ unsupported_young_plateau_curves = unsupported_adjacent_plateau_curves
 def apply_publication(surface, asof, history, cfg: PublicationConfig = PublicationConfig()):
     if surface is None or surface.empty:
         raise ValueError('Cannot publish an empty price grid')
-    needed = set(CELL + ['max_grid_bucket','price_center','n_group_all',
+    needed = set(CELL + ['max_grid_bucket','price_center','n30','n120','n_group_all',
                          'motorcycle_n30','group_n30','is_factory'])
     if missing := (needed - set(surface.columns)):
         raise ValueError(f'Missing required surface fields: {sorted(missing)}')
@@ -523,6 +527,23 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
             'Similar age curves remain publishable after duplicate guard '
             f'({len(remaining_plateau)} curves would still be held)'
         )
+    # Age zero is the current production year.  Sparse age-specific market
+    # evidence must not be masked by support/OOF from older production years.
+    # Replicate the decision across the complete model/copy/variant/age grid
+    # (all conditions and mileage buckets), never holding a partial surface.
+    if cfg.current_year_evidence_guard_enabled:
+        weak_current_year = (
+            pd.to_numeric(d['age'], errors='coerce').eq(0) &
+            pd.to_numeric(d['n30'], errors='coerce').eq(0) &
+            pd.to_numeric(d['n120'], errors='coerce').lt(
+                cfg.current_year_min_n120_without_recent_ads)
+        )
+        weak_current_year = weak_current_year.groupby(
+            [d[col] for col in GROUP + ['age']], dropna=False
+        ).transform('any')
+        newly_held = weak_current_year & d['publication_allowed']
+        d.loc[newly_held, ['publication_allowed', 'is_reliable']] = False
+        d.loc[newly_held, 'publication_status'] = 'HOLD_CURRENT_YEAR_INSUFFICIENT_EVIDENCE'
     unseen=d.oof_n.eq(0) & d.publication_allowed
     d.loc[unseen,'publication_status']='PUBLISH_MARKET_SUPPORTED_UNTESTED'
     d['publication_reason_code']=d['publication_status']

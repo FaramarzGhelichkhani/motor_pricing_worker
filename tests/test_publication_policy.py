@@ -92,7 +92,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertTrue(published['age_plateau_held'].all())
         self.assertFalse(published['publication_allowed'].any())
         self.assertEqual(published['policy_version'].unique().tolist(),
-                         ['USED_RELEASE_FINAL_6_ALL_AGE_DUPLICATE_QUALITY_GUARD_2PCT'])
+                         ['USED_RELEASE_FINAL_7_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_EVIDENCE'])
 
     def test_all_distinct_ages_are_compared(self):
         surface = self.make_surface(ages=(0, 3, 8))
@@ -189,6 +189,63 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertEqual(cfg.age_plateau_market_dominance_ratio, 1.25)
         self.assertEqual(cfg.age_plateau_winner_min_n120, 20.0)
         self.assertEqual(cfg.age_plateau_winner_min_n30, 6.0)
+
+    def test_current_year_guard_holds_all_mileage_and_condition_rows(self):
+        surface = self.make_surface(ages=(0, 1), supports={0: (4, 0), 1: (4, 0)})
+        surface['price_center'] = surface['price_center'].astype(float)
+        older = surface.age.eq(1)
+        surface.loc[older, 'price_center'] *= 0.90
+        surface.loc[older, 'adjusted_price'] = surface.loc[older, 'price_center']
+        extra_condition = surface[surface.age.eq(0)].copy()
+        extra_condition['condition_tier'] = 2
+        extra_condition = extra_condition[extra_condition.mileage_bucket.ge(1)]
+        surface = pd.concat([surface, extra_condition], ignore_index=True)
+        result = apply_publication(surface, '2026-11-16', pd.DataFrame())
+        current = result[result.age.eq(0)]
+        older = result[result.age.eq(1)]
+        self.assertEqual(len(current), 11)
+        self.assertFalse(current.publication_allowed.any())
+        self.assertFalse(current.is_reliable.any())
+        self.assertTrue(current.publication_reason_code.eq(
+            'HOLD_CURRENT_YEAR_INSUFFICIENT_EVIDENCE').all())
+        self.assertTrue(older.publication_allowed.all())
+
+    def test_current_year_guard_uses_both_exact_support_thresholds(self):
+        for n120, n30, expected_publish in ((4, 0, False), (5, 0, True),
+                                              (4, 1, True), (1, 2, True)):
+            with self.subTest(n120=n120, n30=n30):
+                surface = self.make_surface(ages=(0,), supports={0: (n120, n30)})
+                result = apply_publication(surface, '2026-11-16', pd.DataFrame())
+                self.assertEqual(result.publication_allowed.tolist(),
+                                 [expected_publish] * len(result))
+
+    def test_current_year_guard_keeps_other_variants_and_preexisting_holds(self):
+        surface = self.make_surface(ages=(0,), supports={0: (4, 0)})
+        other_variant = surface.copy()
+        other_variant['model_variant'] = 'ABS'
+        other_variant[['n120', 'n30']] = [8, 1]
+        surface = pd.concat([surface, other_variant], ignore_index=True)
+        # The current-year guard must not overwrite an existing model hold.
+        surface.loc[surface.model_variant.eq('DEFAULT'), 'motorcycle_n30'] = 0
+        result = apply_publication(surface, '2026-11-16', pd.DataFrame())
+        self.assertTrue(result.loc[result.model_variant.eq('DEFAULT'),
+                                   'publication_status'].eq('HOLD_WEAK_MODEL_MARKET').all())
+        self.assertTrue(result.loc[result.model_variant.eq('ABS'),
+                                   'publication_allowed'].all())
+
+    def test_current_year_guard_cannot_hold_part_of_a_variant_year(self):
+        surface = self.make_surface(ages=(0,), supports={0: (4, 0)})
+        # One inconsistent support row cannot leave an otherwise published
+        # mileage bucket of the same year/variant exposed.
+        surface.loc[surface.mileage_bucket.eq(0), ['n30', 'n120']] = [1, 5]
+        result = apply_publication(surface, '2026-11-16', pd.DataFrame())
+        self.assertFalse(result.publication_allowed.any())
+
+    def test_current_year_guard_can_be_disabled(self):
+        surface = self.make_surface(ages=(0,), supports={0: (4, 0)})
+        cfg = PublicationConfig(current_year_evidence_guard_enabled=False)
+        result = apply_publication(surface, '2026-11-16', pd.DataFrame(), cfg)
+        self.assertTrue(result.publication_allowed.all())
 
 
 if __name__ == '__main__':
