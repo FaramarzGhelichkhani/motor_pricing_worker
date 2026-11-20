@@ -113,7 +113,7 @@ class SurfaceConfig:
     show_progress: bool = True
     extend_parent_supported_min_age: bool = True
     min_parent_age_support: int = 2
-    residual_loss_function: str = "Quantile:alpha=0.48"
+    residual_loss_function: str = "Quantile:alpha=0.49"
     log_every_n_groups: int = 200
     grid_age_bucket_quantile: float = 0.99
     grid_min_age_observations: int = 100

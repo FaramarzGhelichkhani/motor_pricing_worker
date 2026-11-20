@@ -13,9 +13,39 @@ from motorcycle_surface.database import (
     _identity,
     _identity_values,
 )
+from motorcycle_surface.publication_policy import POLICY_VERSION
 
 
 class DatabasePersistenceTests(unittest.TestCase):
+    def test_production_requires_current_publication_policy_version(self):
+        class Dummy(SurfaceDatabaseMixin):
+            pass
+
+        worker = Dummy()
+        worker._surface_df = pd.DataFrame({
+            'motorcycle_model_id': [203], 'real_brand': ['Honda'],
+            'real_model': ['Click 150'], 'is_copy': [False],
+            'model_variant': ['DEFAULT'], 'production_year': [1405],
+            'mileage_bucket': [0], 'condition_tier': [1],
+            'suggested_lower': [650_000_000],
+            'adjusted_price': [700_000_000],
+            'suggested_upper': [750_000_000],
+            'publication_allowed': [True], 'is_reliable': [True],
+            'policy_version': [POLICY_VERSION], 'is_factory': [False],
+        })
+        worker._model_index_history_data = pd.DataFrame({
+            'motorcycle_model_id': [203], 'real_brand': ['Honda'],
+            'real_model': ['Click 150'], 'is_copy': [False],
+            'model_variant': ['DEFAULT'],
+        })
+        history, surface = worker._prepare_frames('production')
+        self.assertEqual(len(history), 1)
+        self.assertEqual(len(surface), 1)
+
+        worker._surface_df['policy_version'] = 'OLD_POLICY'
+        with self.assertRaisesRegex(ValueError, 'Production requires'):
+            worker._prepare_frames('production')
+
     def test_vectorized_identity_matches_legacy_identity(self):
         frame = pd.DataFrame({
             "motorcycle_model_id": [203, None, 12.5, 17.0],
