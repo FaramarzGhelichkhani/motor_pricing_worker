@@ -92,7 +92,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertTrue(published['age_plateau_held'].all())
         self.assertFalse(published['publication_allowed'].any())
         self.assertEqual(published['policy_version'].unique().tolist(),
-                         ['USED_RELEASE_FINAL_9_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_3_30D_10_120D_BIDIRECTIONAL_MARKET'])
+                         ['USED_RELEASE_FINAL_10_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_AND_BIDIRECTIONAL_MARKET'])
 
     def test_all_distinct_ages_are_compared(self):
         surface = self.make_surface(ages=(0, 3, 8))
@@ -191,7 +191,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertEqual(cfg.age_plateau_winner_min_n30, 6.0)
 
     def test_current_year_guard_holds_all_mileage_and_condition_rows(self):
-        surface = self.make_surface(ages=(0, 1), supports={0: (12, 2), 1: (4, 0)})
+        surface = self.make_surface(ages=(0, 1), supports={0: (9, 2), 1: (4, 0)})
         surface['price_center'] = surface['price_center'].astype(float)
         older = surface.age.eq(1)
         surface.loc[older, 'price_center'] *= 0.90
@@ -211,11 +211,11 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertTrue(older.publication_allowed.all())
 
     def test_current_year_guard_uses_both_exact_support_thresholds(self):
-        # Publishing requires BOTH n30 >= 3 and n120 >= 10.
+        # Hold only if BOTH n30 < 3 and n120 < 10.
         for n120, n30, expected_publish in (
-            (9, 3, False), (10, 2, False), (9, 2, False),
+            (9, 3, True), (10, 2, True), (9, 2, False),
             (10, 3, True), (10, 5, True), (12, 4, True),
-            (5, 7, False), (20, 0, False),
+            (5, 7, True), (20, 0, True), (0, 0, False),
         ):
             with self.subTest(n120=n120, n30=n30):
                 surface = self.make_surface(ages=(0,), supports={0: (n120, n30)})
@@ -246,7 +246,7 @@ class AllAgeDuplicateQualityPolicyTests(unittest.TestCase):
         self.assertFalse(result.publication_allowed.any())
 
     def test_current_year_guard_rejects_missing_evidence(self):
-        surface = self.make_surface(ages=(0,), supports={0: (12, 4)})
+        surface = self.make_surface(ages=(0,), supports={0: (9, 2)})
         surface.loc[surface.mileage_bucket.eq(0), 'n30'] = float('nan')
         result = apply_publication(surface, '2026-11-16', pd.DataFrame())
         self.assertFalse(result.publication_allowed.any())
