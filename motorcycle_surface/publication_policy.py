@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_8_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_BIDIRECTIONAL_MARKET'
+POLICY_VERSION = 'USED_RELEASE_FINAL_10_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_AND_BIDIRECTIONAL_MARKET'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -49,10 +49,11 @@ class PublicationConfig:
     # Relative ratios alone are unsafe when the competing curve has zero ads.
     age_plateau_winner_min_n120: float = 20.0
     age_plateau_winner_min_n30: float = 6.0
-    # Do not publish age-zero prices with no ads in 30 days and fewer than
-    # five ads in 120 days, even when other ages passed model-level OOF.
+    # Hold age-zero curves only when BOTH recent 30-day support is below 3
+    # AND 120-day support is below 10; other age policies are unchanged.
     current_year_evidence_guard_enabled: bool = True
-    current_year_min_n120_without_recent_ads: int = 5
+    current_year_min_n30: int = 3
+    current_year_min_n120: int = 10
 
 
 def _norm(df):
@@ -532,12 +533,14 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
     # Replicate the decision across the complete model/copy/variant/age grid
     # (all conditions and mileage buckets), never holding a partial surface.
     if cfg.current_year_evidence_guard_enabled:
-        weak_current_year = (
-            pd.to_numeric(d['age'], errors='coerce').eq(0) &
-            pd.to_numeric(d['n30'], errors='coerce').eq(0) &
-            pd.to_numeric(d['n120'], errors='coerce').lt(
-                cfg.current_year_min_n120_without_recent_ads)
-        )
+        # Both deficits must coincide to hold the complete current-year curve.
+        # Missing counts are treated as zero evidence for their window.
+        age_zero = pd.to_numeric(d['age'], errors='coerce').eq(0)
+        insufficient_30 = pd.to_numeric(d['n30'], errors='coerce').fillna(0).lt(
+            cfg.current_year_min_n30)
+        insufficient_120 = pd.to_numeric(d['n120'], errors='coerce').fillna(0).lt(
+            cfg.current_year_min_n120)
+        weak_current_year = age_zero & insufficient_30 & insufficient_120
         weak_current_year = weak_current_year.groupby(
             [d[col] for col in GROUP + ['age']], dropna=False
         ).transform('any')
