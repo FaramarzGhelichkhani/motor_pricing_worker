@@ -1496,7 +1496,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             .astype('Int64').astype(str).replace('<NA>', 'UNKNOWN')
         )
         is_copy = pd.to_numeric(result['is_copy'], errors='coerce')
-        if is_copy.isna().any() or ~is_copy.isin([0, 1]).all():
+        if is_copy.isna().any() or not is_copy.isin([0, 1]).all():
             raise ValueError('Index history contains non-binary or missing is_copy')
         result['is_copy'] = is_copy.astype(int)
         for key in ('real_brand', 'real_model', 'model_variant'):
