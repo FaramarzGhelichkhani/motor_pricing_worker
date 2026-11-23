@@ -114,8 +114,10 @@ def _neighbor_one_step(summary):
 def _adjacent_price_jumps(d):
     """Median price jumps across matching mileage and condition coordinates."""
     pts=d[CELL+['price_center']].drop_duplicates(CELL)
-    if not pts.price_center.gt(0).all():
-        raise ValueError('Invalid price_center in age-price shape check')
+    # Invalid prices are already held by the strict local publication policy.
+    # They must not crash the later age guard or serve as neighboring anchors.
+    pts=pts.loc[pts.price_center.gt(0) &
+                np.isfinite(pts.price_center)].copy()
     base=pts.copy()
     older=base.copy()
     older['age'] -= 1
