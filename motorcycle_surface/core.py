@@ -25,7 +25,8 @@ from .reliability import HierarchicalSurfaceReliability
 from .bounded_calibration_v3 import NarrowIntervalPositioner
 from .local_bias_v7 import LocalSelectiveBiasCalibrator, LocalRiskConfig, downward_monotone_envelope
 from .publication_policy import POLICY_VERSION
-from .publication_pipeline import apply_complete_publication, dedupe_listing_fingerprints
+from .publication_pipeline import apply_complete_publication
+from .recent_market_guard import dedupe_listing_fingerprints
 from .weighted_isotonic_v3 import weighted_ragged_isotonic
 from .monotone_utils import product_order_min_closure
 from .coverage_policy_v4 import apply_age_window_certificate
