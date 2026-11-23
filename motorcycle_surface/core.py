@@ -1479,19 +1479,37 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         grid = grid.drop(columns=['_actual_production_year'])
         return grid
 
-    def _build_model_index_history(self, surface: pd.DataFrame) -> pd.DataFrame:
-        """Legacy history view, populated without in-sample price evaluation.
+    @staticmethod
+    def _normalize_history_group_keys(frame: pd.DataFrame) -> pd.DataFrame:
+        """Canonicalize joins in the legacy index view without mutating model inputs.
 
-        Normalize IDs before grouping or joining history.
+        Surface publication casts is_copy to an integer while CatBoost training
+        retains categorical strings. Normalize *all* sides of GROUP joins in the
+        history view; never change self.ads, backtest cells or predicted prices.
         """
-        surface = surface.copy()
-        surface['motorcycle_model_id'] = (
-            pd.to_numeric(surface['motorcycle_model_id'], errors='coerce')
+        result = frame.copy()
+        required = set(GROUP) - set(result.columns)
+        if required:
+            raise ValueError(f'Missing index history group keys: {sorted(required)}')
+        result['motorcycle_model_id'] = (
+            pd.to_numeric(result['motorcycle_model_id'], errors='coerce')
             .astype('Int64').astype(str).replace('<NA>', 'UNKNOWN')
         )
+        is_copy = pd.to_numeric(result['is_copy'], errors='coerce')
+        if is_copy.isna().any() or ~is_copy.isin([0, 1]).all():
+            raise ValueError('Index history contains non-binary or missing is_copy')
+        result['is_copy'] = is_copy.astype(int)
+        for key in ('real_brand', 'real_model', 'model_variant'):
+            result[key] = result[key].fillna('').astype(str)
+        return result
+
+    def _build_model_index_history(self, surface: pd.DataFrame) -> pd.DataFrame:
+        """Legacy history view, with canonical GROUP dtypes on every join."""
+        surface = self._normalize_history_group_keys(surface)
         asof = self.asof
         used = self.ads[(self.ads.date.lt(asof)) &
                         (self.ads.date.ge(asof - pd.Timedelta(days=self.config.history_days)))].copy()
+        used = self._normalize_history_group_keys(used)
         used['recent30'] = used.date.ge(asof - pd.Timedelta(days=30)).astype(int)
         stats = used.groupby(GROUP, as_index=False, dropna=False).agg(
             total_samples=('price', 'size'), samples_last_month=('recent30', 'sum'),
@@ -1506,6 +1524,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             return stats
         cells = self.backtest_cells.copy()
         if len(cells):
+            cells = self._normalize_history_group_keys(cells)
             # DB group reliability is calibrated on candidate-display cells only.
             # Full matched-cell metrics remain in backtest_group_metrics.
             cells = cells[cells.publish_state.eq('MODEL_SUPPORT_REVIEW')].copy()
@@ -1735,6 +1754,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         # Group-level DB flag is an aggregate; the source of truth is per-cell is_reliable.
         group_valid=(result.groupby(GROUP,dropna=False,as_index=False).is_reliable.any()
                      .rename(columns={'is_reliable':'_any_cell_reliable'}))
+        group_valid = self._normalize_history_group_keys(group_valid)
         self._model_index_history_data=self._model_index_history_data.merge(
             group_valid,on=GROUP,how='left',validate='one_to_one')
         self._model_index_history_data['is_reliable']=self._model_index_history_data['_any_cell_reliable'].fillna(False).astype(bool)
