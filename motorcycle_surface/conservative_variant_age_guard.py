@@ -24,12 +24,13 @@ CELL = CURVE + ['mileage_bucket']
 
 @dataclass(frozen=True)
 class ConservativeAgeConfig:
-    min_anchor_ads120: int = 6
+    """Balanced selection: protect supported ages, keep direct OOF and 20% gates."""
+    min_anchor_ads120: int = 4
     bracket_distance_years: int = 2
-    max_sparse_ads120: int = 6
-    sharp_jump_pct: float = 25.0
-    min_one_step_ads120: int = 20
-    max_one_step_jump_pct: float = 15.0
+    max_sparse_ads120: int = 4
+    sharp_jump_pct: float = 30.0
+    min_one_step_ads120: int = 15
+    max_one_step_jump_pct: float = 20.0
     min_variant_oof_targets: int = 10
     min_variant_oof_weeks: int = 2
     min_future_ads: int = 3
