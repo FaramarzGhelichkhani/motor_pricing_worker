@@ -67,3 +67,16 @@ def test_candidate_hindsight_cannot_override_global_risk():
     report=error.value.report
     assert report['historical_policy_risk']['bad20']>0
     assert report['current_candidate_risk_audit']['bad20']==0
+
+def test_relisted_tokens_not_independent_for_either_market_direction():
+    from motorcycle_surface.recent_market_guard import dedupe_listing_fingerprints
+    rows=[]
+    for token, price in [('a',90.),('b',95.),('c',90.)]:
+        row=target('2026-11-07',110)
+        row.update(token=token,price=price,title='Same vehicle',
+                   description='One owner, original ad',city='Tehran',
+                   district='Area',seller_type='person',mileage=12345)
+        rows.append(row)
+    dedup=dedupe_listing_fingerprints(pd.DataFrame(rows))
+    assert len(dedup)==1
+    assert dedup.iloc[0].token=='c'
