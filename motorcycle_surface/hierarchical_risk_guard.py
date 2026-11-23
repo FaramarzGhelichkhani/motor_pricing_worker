@@ -193,7 +193,13 @@ def apply_hierarchical_oof_guard(surface, history, asof,
                             'publication_status', 'publication_reason_code'])
     if missing := required - set(surface):
         raise ValueError(f'Hierarchical guard requires {sorted(missing)}')
+    original_copy = surface['is_copy'].to_numpy(copy=True)
     out = _normalize(surface)
+    def restore_input_key_dtype(frame):
+        # Internal numeric keys are temporary. CatBoost/API callers still use
+        # string is_copy (e.g. '0'); never change the external surface contract.
+        frame['is_copy'] = original_copy
+        return frame
     if out.duplicated(CELL).any():
         raise ValueError('Duplicate price coordinates')
     out['oof_variant_risk_state'] = 'MODEL_RISK_INCONCLUSIVE'
@@ -201,15 +207,15 @@ def apply_hierarchical_oof_guard(surface, history, asof,
     out['oof_risk_hold_scope'] = ''
     live = out.loc[out.publication_allowed.fillna(False).astype(bool), CURVE]
     if live.empty:
-        return out
+        return restore_input_key_dtype(out)
     weekly = _weekly_evidence(history, asof, cfg)
     if weekly.empty:
-        return out
+        return restore_input_key_dtype(out)
     active = live.drop_duplicates(CURVE)
     weekly = weekly.merge(active.assign(_candidate=True), on=CURVE,
                           how='inner', validate='many_to_one')
     if weekly.empty:
-        return out
+        return restore_input_key_dtype(out)
 
     # 1) Variant risk: may suppress only its own curves.
     bad_variants = set()
@@ -256,4 +262,4 @@ def apply_hierarchical_oof_guard(surface, history, asof,
         raise AssertionError('Partial mileage curve in hierarchical model guard')
     if not (out.publication_allowed.astype(bool) == out.is_reliable.astype(bool)).all():
         raise AssertionError('Reliability flag mismatch in hierarchical model guard')
-    return out
+    return restore_input_key_dtype(out)
