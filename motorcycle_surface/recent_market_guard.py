@@ -115,6 +115,7 @@ def detect_observed_over20(surface: pd.DataFrame, ads: pd.DataFrame, asof):
         raise ValueError('Duplicate surface cell coordinates')
     s['price_center'] = pd.to_numeric(s.price_center,errors='coerce')
     s = s[s.price_center.gt(0) & np.isfinite(s.price_center)]
+    end = pd.Timestamp(asof).normalize()
     a, _ = _independent_used_ads(ads, asof)
     if a.empty or s.empty:
         return set(), pd.DataFrame()
@@ -187,6 +188,7 @@ def detect_observed_under20(surface: pd.DataFrame, ads: pd.DataFrame, asof):
         raise ValueError('Duplicate surface cell coordinates')
     s['price_center'] = pd.to_numeric(s.price_center, errors='coerce')
     s = s[s.price_center.gt(0) & np.isfinite(s.price_center)]
+    end = pd.Timestamp(asof).normalize()
     a, relisted = _independent_used_ads(ads, asof)
     if a.empty or s.empty:
         return set(), pd.DataFrame()
