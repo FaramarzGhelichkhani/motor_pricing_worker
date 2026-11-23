@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from .severe_oof_guard import held_severe_curve_reasons
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_13_CONSERVATIVE_VARIANT_AGE'
+POLICY_VERSION = 'USED_RELEASE_FINAL_14_BALANCED_VARIANT_AGE'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
