@@ -138,11 +138,14 @@ def _risk_stats(frame, cfg, *, seed, uncertainty=True):
 
 
 def _assess(frame, asof, cfg, key):
-    metrics = _risk_stats(frame, cfg, seed=key)
+    # Skip expensive block bootstraps entirely for sparse models/variants.
+    metrics = _risk_stats(frame, cfg, seed=key, uncertainty=False)
     n, weeks, curves = metrics['n_curve_weeks'], metrics['weeks'], metrics['curves']
     metrics.update(status='MODEL_RISK_INCONCLUSIVE', reason='INSUFFICIENT_BREADTH')
     if n < cfg.min_curve_weeks or weeks < cfg.min_weeks or curves < cfg.min_curves:
         return metrics
+    metrics = _risk_stats(frame, cfg, seed=key, uncertainty=True)
+    metrics.update(status='MODEL_RISK_INCONCLUSIVE', reason='NO_CONFIRMED_SYSTEMIC_RISK')
     cutoff = pd.Timestamp(asof).normalize() - pd.Timedelta(days=cfg.recent_days)
     recent = frame.loc[frame['_origin'].ge(cutoff)].copy()
     recent_by_week = recent.groupby('_origin').ape_pct.median()
