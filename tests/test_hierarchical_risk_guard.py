@@ -99,3 +99,18 @@ def test_curve_level_20pct_rule_remains_independent():
     rejected,_=held_severe_curve_reasons(h,'2026-11-22')
     assert len(rejected)==1
     assert list(rejected.values())==['HOLD_OOF_SINGLE_CONFIRMED_OVER20']
+
+def test_pulsar_like_two_of_thirteen_is_not_proof_of_systemic_model_risk():
+    s,h=fixture_rows(ages=(10,11,12,13),dates=(
+        '2026-10-24','2026-10-31','2026-11-07','2026-11-14'))
+    # 13 independent curve/weeks, 4 origins, 4 curves; only two >15%.
+    drop=(h['age'].eq(13) & h['asof'].eq('2026-10-24')) | (
+          h['age'].eq(13) & h['asof'].eq('2026-11-07')) | (
+          h['age'].eq(12) & h['asof'].eq('2026-11-14'))
+    h=h.loc[~drop].copy()
+    assert len(h)==13
+    h['price_center']=103.
+    h.loc[h.index[:2],'price_center']=118.
+    got=apply_hierarchical_oof_guard(s,h,'2026-11-22')
+    assert got.publication_allowed.all()
+    assert not got.oof_variant_risk_state.eq('MODEL_PROVEN_UNSAFE').any()
