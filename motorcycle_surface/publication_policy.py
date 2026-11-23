@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from .severe_oof_guard import held_severe_curve_reasons
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_11_CAUSAL_SEVERE_CURVE_GUARD'
+POLICY_VERSION = 'USED_RELEASE_FINAL_12_HIERARCHICAL_SYSTEMIC_RISK'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -421,7 +421,8 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
     d['oof_median_abs_pct'] = midkey.map(lambda k: risk_map.get(k,{}).get('oof_median_abs_pct',np.nan))
     d['oof_over15'] = midkey.map(lambda k: risk_map.get(k,{}).get('oof_over15',0)).fillna(0).astype(int)
     d['oof_under15'] = midkey.map(lambda k: risk_map.get(k,{}).get('oof_under15',0)).fillna(0).astype(int)
-    badmodel = midkey.isin(bad)
+    # Keep the previous raw-rate test as audit only; it is too unstable for veto.
+    d['oof_legacy_model_rejection'] = midkey.isin(bad)
     n30 = pd.to_numeric(d.motorcycle_n30,errors='coerce').fillna(0)
     n30variant = pd.to_numeric(d.group_n30,errors='coerce').fillna(0)
     variant_support = pd.to_numeric(d.n_group_all,errors='coerce').fillna(0)
@@ -457,16 +458,16 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
     curve_invalid = curvekey.isin(invalid_curves)
     curve_incomplete = curvekey.isin(incomplete)
     # Never publish a partial curve.
-    d['publication_allowed'] = (~badmodel & ~model_weak & ~variant_weak &
+    d['publication_allowed'] = (~model_weak & ~variant_weak &
                                 ~curve_invalid & ~curve_incomplete & ~confirmed_severe).astype(bool)
     d['is_reliable']=d['publication_allowed'].copy()
     d['publication_status'] = np.select(
-        [curve_invalid,curve_incomplete,badmodel,confirmed_severe,model_weak,variant_weak],
-        ['HOLD_INVALID_CURVE','HOLD_INCOMPLETE_CURVE','HOLD_OOF_SEVERE','HOLD_CONFIRMED_OVER_UNDER_20',
+        [curve_invalid,curve_incomplete,confirmed_severe,model_weak,variant_weak],
+        ['HOLD_INVALID_CURVE','HOLD_INCOMPLETE_CURVE','HOLD_CONFIRMED_OVER_UNDER_20',
          'HOLD_WEAK_MODEL_MARKET','HOLD_WEAK_VARIANT_MARKET'],
         default='PUBLISH_OOF_CHECKED')
     # Record the precise severe direction, even when a broader model guard also holds.
-    distinct_severe = confirmed_severe & ~curve_invalid & ~curve_incomplete & ~badmodel
+    distinct_severe = confirmed_severe & ~curve_invalid & ~curve_incomplete
     d.loc[distinct_severe, 'publication_status'] = d.loc[distinct_severe, 'oof_severe_reason']
     # All-age duplicate curves are resolved by independent per-curve quality evidence.
     d['age_plateau_held'] = False
