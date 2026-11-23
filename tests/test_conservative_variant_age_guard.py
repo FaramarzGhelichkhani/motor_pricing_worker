@@ -151,3 +151,71 @@ def test_local_input_string_is_copy_stays_string_through_hierarchical_guard():
     r=apply_hierarchical_oof_guard(s,None,'2026-11-22')
     assert r.is_copy.eq('0').all()
     assert r.is_copy.dtype==s.is_copy.dtype
+
+
+def test_balanced_defaults_are_exactly_agreed_and_oof_stays_strict():
+    cfg=ConservativeAgeConfig()
+    assert cfg.min_anchor_ads120 == 4
+    assert cfg.bracket_distance_years == 2
+    assert cfg.max_sparse_ads120 == 4
+    assert cfg.sharp_jump_pct == 30.0
+    assert cfg.min_one_step_ads120 == 15
+    assert cfg.max_one_step_jump_pct == 20.0
+    assert cfg.min_variant_oof_targets == 10
+    assert cfg.min_variant_oof_weeks == 2
+    assert cfg.mode == 'enforce'
+
+
+def test_four_market_ads_on_both_sides_can_retain_interpolated_age():
+    s=surface(supports=(4,0,4))
+    r=apply_conservative_variant_age_guard(s,None,'2026-11-22')
+    assert r.loc[r.age.eq(2),'publication_allowed'].all()
+    assert r.loc[r.age.eq(2),'age_support_bracketed'].all()
+    s=surface(supports=(3,0,4))
+    r=apply_conservative_variant_age_guard(s,None,'2026-11-22')
+    assert not r.loc[r.age.eq(2),'publication_allowed'].any()
+
+
+def test_interpolation_distance_still_stops_after_two_years():
+    supported=surface(ages=(0,2,4),supports=(4,0,4))
+    yes=apply_conservative_variant_age_guard(supported,None,'2026-11-22')
+    assert yes.loc[yes.age.eq(2),'publication_allowed'].all()
+    far=surface(ages=(0,3,6),supports=(4,0,4))
+    no=apply_conservative_variant_age_guard(far,None,'2026-11-22')
+    assert not no.loc[no.age.eq(3),'publication_allowed'].any()
+
+
+def test_balanced_sparse_price_jump_thresholds_require_below_four_ads_and_above_30pct():
+    def at(price,ads):
+        s=surface(ages=(2,3),supports=(ads,20),prices=(price,100),
+                  conditions=(1,),buckets=(1,))
+        return apply_conservative_variant_age_guard(s,None,'2026-11-22')
+    no_hold=at(128,3)
+    assert no_hold.loc[no_hold.age.eq(2),'publication_allowed'].all()  # 28%
+    hold=at(131,3)
+    assert not hold.loc[hold.age.eq(2),'publication_allowed'].any()  # 31%
+    enough_ads=at(135,4)
+    assert enough_ads.loc[enough_ads.age.eq(2),'publication_allowed'].all()  # 35%
+
+
+def test_balanced_one_year_extrapolation_accepts_15_ads_and_18pct_with_prior_oof():
+    s=surface(supports=(0,0,15),prices=(130,118,100),
+              conditions=(1,),buckets=(1,))
+    h=pd.DataFrame([target(age=3,origin=week,bucket=km) for week in
+        ('2026-11-07','2026-11-14') for km in range(1,6)])
+    approved=apply_conservative_variant_age_guard(s,h,'2026-11-22')
+    assert approved.loc[approved.age.eq(2),'publication_allowed'].all()
+    assert approved.loc[approved.age.eq(2),'age_extrapolation_protected'].all()
+    fewer=surface(supports=(0,0,14),prices=(130,118,100),
+                  conditions=(1,),buckets=(1,))
+    rejected=apply_conservative_variant_age_guard(fewer,h,'2026-11-22')
+    assert not rejected.loc[rejected.age.eq(2),'publication_allowed'].any()
+
+
+def test_one_year_extrapolation_rejects_21pct_even_with_15_ads_and_valid_oof():
+    s=surface(supports=(0,0,15),prices=(130,121,100),
+              conditions=(1,),buckets=(1,))
+    h=pd.DataFrame([target(age=3,origin=week,bucket=km) for week in
+        ('2026-11-07','2026-11-14') for km in range(1,6)])
+    rejected=apply_conservative_variant_age_guard(s,h,'2026-11-22')
+    assert not rejected.loc[rejected.age.eq(2),'publication_allowed'].any()
