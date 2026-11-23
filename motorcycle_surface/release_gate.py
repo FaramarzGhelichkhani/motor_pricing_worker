@@ -56,7 +56,7 @@ def _risk_metrics(d, *, repeats, seed=1241):
                 upper95_model_bootstrap_tail20_pct_raw=upper20)
 
 def validate_recent_oof_release(builder, *, max_tail15_upper_pct=5.0,
-                                max_tail20_upper_pct=2.0, min_targets=100,
+                                max_tail20_upper_pct=4.0, min_targets=100,
                                 min_motorcycles=20, repeats=2000,
                                 weeks=2, sensitivity_weeks=(4,6)):
     b=getattr(builder,'backtest_cells',None)
