@@ -6,6 +6,7 @@ on:
       - "motorcycle_surface/**"
       - "tests/test_hierarchical_risk_guard.py"
       - "tests/test_causal_release_policy.py"
+      - "tests/test_model_index_history_key_dtypes.py"
       - ".github/workflows/causal-publication-tests.yml"
   workflow_dispatch:
 
@@ -26,4 +27,4 @@ jobs:
       - name: Verify causal publication contracts
         run: |
           python -m compileall -q motorcycle_surface tasks/estimator_v2.py main.py
-          pytest -q tests/test_hierarchical_risk_guard.py tests/test_causal_release_policy.py
+          pytest -q tests/test_hierarchical_risk_guard.py tests/test_causal_release_policy.py tests/test_model_index_history_key_dtypes.py
