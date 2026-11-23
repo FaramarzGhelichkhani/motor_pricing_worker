@@ -156,7 +156,7 @@ def apply_conservative_variant_age_guard(surface, history, asof,
     h=_completed_history(history,asof,cfg)
     summary=(d.groupby(AGE,as_index=False,dropna=False)
              .agg(age_n120=('n120','max'),age_n30=('n30','max')))
-    for keys,stem in [(IDENTITY,'model_oof'),(VARIANT,'variant_oof'),
+    for keys,stem in [(IDENTITY,'age_parent_oof'),(VARIANT,'variant_oof'),
                       (AGE,'variant_age_oof')]:
         if h.empty:
             summary[stem+'_n'] = 0
@@ -193,12 +193,12 @@ def apply_conservative_variant_age_guard(surface, history, asof,
     summary['age_evidence_source']=np.select([
         summary.variant_age_oof_n.gt(0),summary.age_n120.gt(0),
         bracket,extrapolation_protected,summary.variant_oof_n.gt(0),
-        summary.model_oof_n.gt(0)],
+        summary.age_parent_oof_n.gt(0)],
         ['DIRECT_VARIANT_AGE_OOF','MARKET_AGE_SUPPORTED_NO_DIRECT_OOF',
          'SUPPORTED_AGE_INTERPOLATION','SUPPORTED_ONE_YEAR_EXTRAPOLATION',
          'VARIANT_OOF_OTHER_AGE_ONLY','PARENT_MODEL_OOF_ONLY'],
         default='UNSUPPORTED_AGE_EXTRAPOLATION')
-    fields=['age_n120','age_n30','model_oof_n','model_oof_weeks',
+    fields=['age_n120','age_n30','age_parent_oof_n','age_parent_oof_weeks',
             'variant_oof_n','variant_oof_weeks','variant_age_oof_n',
             'variant_age_oof_weeks','age_support_bracketed',
             'age_extrapolation_protected','age_neighbor_jump_pct',
