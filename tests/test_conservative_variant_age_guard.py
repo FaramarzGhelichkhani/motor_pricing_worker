@@ -35,7 +35,7 @@ def test_bracket_supports_age_without_own_ad_or_oof():
     r=apply_conservative_variant_age_guard(s,None,'2026-11-22')
     assert r.publication_allowed.all()
     assert r.loc[r.age.eq(2),'age_support_bracketed'].all()
-    assert r.is_copy.dtype==object and r.is_copy.eq('0').all()
+    assert r.is_copy.dtype==s.is_copy.dtype and r.is_copy.eq('0').all()
 
 
 def test_unbracketed_zero_age_holds_every_condition_and_mileage_cell():
@@ -115,6 +115,17 @@ def test_upstream_severe_hold_and_prices_preserved():
     pd.testing.assert_frame_equal(s,original)
 
 
+def test_already_rejected_bad_price_does_not_crash_age_shape_guard():
+    s=surface(supports=(0,0,20))
+    row=s.age.eq(1)
+    s.loc[row,'price_center']=float('nan')
+    s.loc[row,['publication_allowed','is_reliable']]=False
+    s.loc[row,'publication_status']='HOLD_INVALID_CURVE'
+    r=apply_conservative_variant_age_guard(s,None,'2026-11-22')
+    assert not r.loc[row,'publication_allowed'].any()
+    assert r.loc[row,'publication_status'].eq('HOLD_INVALID_CURVE').all()
+
+
 def test_audit_mode_flags_but_cannot_veto():
     s=surface(supports=(0,0,20))
     r=apply_conservative_variant_age_guard(s,None,'2026-11-22',
@@ -139,4 +150,4 @@ def test_local_input_string_is_copy_stays_string_through_hierarchical_guard():
     s=surface()
     r=apply_hierarchical_oof_guard(s,None,'2026-11-22')
     assert r.is_copy.eq('0').all()
-    assert r.is_copy.dtype==object
+    assert r.is_copy.dtype==s.is_copy.dtype
