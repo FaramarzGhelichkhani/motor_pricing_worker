@@ -24,8 +24,9 @@ from .database import SurfaceDatabaseMixin
 from .reliability import HierarchicalSurfaceReliability
 from .bounded_calibration_v3 import NarrowIntervalPositioner
 from .local_bias_v7 import LocalSelectiveBiasCalibrator, LocalRiskConfig, downward_monotone_envelope
-from .publication_policy import apply_publication, PublicationConfig, POLICY_VERSION
-from .recent_market_guard import apply_recent_market_guard
+from .publication_policy import POLICY_VERSION
+from .publication_pipeline import apply_complete_publication
+from .recent_market_guard import dedupe_listing_fingerprints
 from .weighted_isotonic_v3 import weighted_ragged_isotonic
 from .monotone_utils import product_order_min_closure
 from .coverage_policy_v4 import apply_age_window_certificate
@@ -1171,6 +1172,9 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             unique=pd.concat([known,missing],ignore_index=True)
         else:
             unique=t
+        # Use the same independent-listing fingerprint as the live market veto.
+        # Future labels are computed only after their forecast week is complete.
+        unique=dedupe_listing_fingerprints(unique)
         g=unique.groupby(CELL,dropna=False)
         evidence=g.price.agg(actual_independent='median',future_unique_ads='size',
                              _q25=lambda v:v.quantile(.25),
@@ -1375,7 +1379,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                 decisions = fold_grid[CELL].copy()
                 decisions['fold_publication_allowed'] = False
             else:
-                historic_gate = apply_publication(fold_grid, dt, earlier, PublicationConfig())
+                historic_gate = apply_complete_publication(fold_grid, self.ads, dt, earlier)
                 decisions = (historic_gate[CELL + ['publication_allowed']]
                     .rename(columns={'publication_allowed':'fold_publication_allowed'}))
             # Fold grid normalizes is_copy into int8 inside the strict policy;
@@ -1475,19 +1479,37 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         grid = grid.drop(columns=['_actual_production_year'])
         return grid
 
-    def _build_model_index_history(self, surface: pd.DataFrame) -> pd.DataFrame:
-        """Legacy history view, populated without in-sample price evaluation.
+    @staticmethod
+    def _normalize_history_group_keys(frame: pd.DataFrame) -> pd.DataFrame:
+        """Canonicalize joins in the legacy index view without mutating model inputs.
 
-        Normalize IDs before grouping or joining history.
+        Surface publication casts is_copy to an integer while CatBoost training
+        retains categorical strings. Normalize *all* sides of GROUP joins in the
+        history view; never change self.ads, backtest cells or predicted prices.
         """
-        surface = surface.copy()
-        surface['motorcycle_model_id'] = (
-            pd.to_numeric(surface['motorcycle_model_id'], errors='coerce')
+        result = frame.copy()
+        required = set(GROUP) - set(result.columns)
+        if required:
+            raise ValueError(f'Missing index history group keys: {sorted(required)}')
+        result['motorcycle_model_id'] = (
+            pd.to_numeric(result['motorcycle_model_id'], errors='coerce')
             .astype('Int64').astype(str).replace('<NA>', 'UNKNOWN')
         )
+        is_copy = pd.to_numeric(result['is_copy'], errors='coerce')
+        if is_copy.isna().any() or not is_copy.isin([0, 1]).all():
+            raise ValueError('Index history contains non-binary or missing is_copy')
+        result['is_copy'] = is_copy.astype(int)
+        for key in ('real_brand', 'real_model', 'model_variant'):
+            result[key] = result[key].fillna('').astype(str)
+        return result
+
+    def _build_model_index_history(self, surface: pd.DataFrame) -> pd.DataFrame:
+        """Legacy history view, with canonical GROUP dtypes on every join."""
+        surface = self._normalize_history_group_keys(surface)
         asof = self.asof
         used = self.ads[(self.ads.date.lt(asof)) &
                         (self.ads.date.ge(asof - pd.Timedelta(days=self.config.history_days)))].copy()
+        used = self._normalize_history_group_keys(used)
         used['recent30'] = used.date.ge(asof - pd.Timedelta(days=30)).astype(int)
         stats = used.groupby(GROUP, as_index=False, dropna=False).agg(
             total_samples=('price', 'size'), samples_last_month=('recent30', 'sum'),
@@ -1502,6 +1524,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             return stats
         cells = self.backtest_cells.copy()
         if len(cells):
+            cells = self._normalize_history_group_keys(cells)
             # DB group reliability is calibrated on candidate-display cells only.
             # Full matched-cell metrics remain in backtest_group_metrics.
             cells = cells[cells.publish_state.eq('MODEL_SUPPORT_REVIEW')].copy()
@@ -1707,12 +1730,10 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                  self.config.coverage_publication_mode)
 
         # Sole, fail-closed publication authority; no V10/V13/V14/V15 fallback.
-        result=apply_publication(result, self.asof, self.backtest_cells,
-                                 PublicationConfig())
-        # Post-prediction check against USED ads available before the run date.
-        # Stage 1 age reference is already included in price_center for cells
-        # without exact listings; no factory data or future ads are consulted.
-        result=apply_recent_market_guard(result, self.ads, self.asof)
+        # Single causal chain: OOF curve -> independent market -> systemic variant/model.
+        # The identical function is used in every historical fold above.
+        result=apply_complete_publication(result, self.ads, self.asof,
+                                          self.backtest_cells)
         result['is_reliable']=result['publication_allowed'].astype(bool)
         if result['is_factory'].any():
             raise AssertionError('Factory price leaked into used-price surface')
@@ -1733,6 +1754,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
         # Group-level DB flag is an aggregate; the source of truth is per-cell is_reliable.
         group_valid=(result.groupby(GROUP,dropna=False,as_index=False).is_reliable.any()
                      .rename(columns={'is_reliable':'_any_cell_reliable'}))
+        group_valid = self._normalize_history_group_keys(group_valid)
         self._model_index_history_data=self._model_index_history_data.merge(
             group_valid,on=GROUP,how='left',validate='one_to_one')
         self._model_index_history_data['is_reliable']=self._model_index_history_data['_any_cell_reliable'].fillna(False).astype(bool)
@@ -1755,6 +1777,12 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
               'isotonic_change_pct','isotonic_warning','isotonic_block','surface_date',
               'is_reliable','publication_allowed','publication_status','publication_reason_code',
               'policy_version','oof_n','oof_weeks','oof_median_abs_pct','oof_over15','oof_under15','publication_evidence_source',
+              'age_n120','age_n30','age_parent_oof_n','age_parent_oof_weeks',
+              'variant_oof_n','variant_oof_weeks','variant_age_oof_n','variant_age_oof_weeks',
+              'curve_oof_n','curve_oof_weeks','age_support_bracketed',
+              'age_extrapolation_protected','age_neighbor_jump_pct',
+              'age_evidence_source','age_conservative_reason',
+              'oof_variant_risk_state','oof_model_risk_state','oof_risk_hold_scope',
               'prediction_validated','prediction_quality_status',
               'quality_expansion_lane','publication_evidence_tier','quality_market_matched_ads',
               'quality_model_status','production_quality_state','quality_oof_n',

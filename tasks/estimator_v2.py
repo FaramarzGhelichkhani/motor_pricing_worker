@@ -1,4 +1,6 @@
 import logging
+import json
+from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -17,6 +19,22 @@ from motorcycle_surface.publication_policy import POLICY_VERSION
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def _persist_release_audit(asof, status, report):
+    # No database write: on release failure, the last snapshot is untouched.
+    outdir = Path('output/release_audits')
+    outdir.mkdir(parents=True, exist_ok=True)
+    filename = outdir / f'used_release_{pd.Timestamp(asof).date()}_{status}.json'
+    staging = filename.with_suffix('.json.tmp')
+    staging.write_text(json.dumps({
+        'asof': str(pd.Timestamp(asof).date()),
+        'status': status,
+        'policy_version': POLICY_VERSION,
+        'report': report,
+    }, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
+    staging.replace(filename)
+    logger.info('Release audit saved: %s', filename)
+
 
 
 
@@ -93,7 +111,8 @@ def run_price_estimation_pipeline():
         published = surface.loc[surface['is_reliable']]
         if published.motorcycle_model_id.nunique() < 100:
             raise ValueError('Publication safety stop: fewer than 100 models')
-        validate_recent_oof_release(surface_builder)
+        release_report = validate_recent_oof_release(surface_builder)
+        _persist_release_audit(asof, 'approved', release_report)
         surface_builder.update_database()
         published = surface.loc[surface["is_reliable"]]
         models = published["motorcycle_model_id"].nunique()
@@ -104,7 +123,11 @@ def run_price_estimation_pipeline():
     except Exception as exc:
         db.rollback()
         django_db.rollback()
-        logger.exception("Pipeline failed")
+        try:
+            _persist_release_audit(asof, 'blocked', getattr(exc, 'report', {'error':str(exc)}))
+        except Exception:
+            logger.exception('Could not persist failed release audit')
+        logger.exception('Pipeline failed; existing committed snapshot retained')
         return {"status": "error", "message": str(exc)}
     finally:
         db.close()

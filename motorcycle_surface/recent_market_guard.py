@@ -45,6 +45,67 @@ def _normalize(d: pd.DataFrame) -> pd.DataFrame:
     return x
 
 
+def dedupe_listing_fingerprints(ads: pd.DataFrame) -> pd.DataFrame:
+    """Reject relists with new tokens; usable for prior-market and future OOF.
+
+    Prices are excluded from the fingerprint so a repriced ad remains one
+    observation. An ad without either title or description cannot certify
+    independence. This does not prove sellers are different.
+    """
+    if not {'title','description'}.intersection(ads.columns):
+        return ads.iloc[0:0].copy()
+    a=ads.copy()
+    signature=a[CELL].copy()
+    for col in ['title','description','city','district','seller_type']:
+        values=(a[col] if col in a else pd.Series('',index=a.index))
+        values=(values.fillna('').astype(str).str.lower()
+                .str.replace(r'\s+',' ',regex=True).str.strip())
+        signature[col]=values.str.slice(0,180) if col=='description' else values
+    if 'mileage' in a:
+        signature['mileage']=pd.to_numeric(a.mileage,errors='coerce').fillna(-1)
+    nonempty=~(signature.title.eq('') & signature.description.eq(''))
+    a=a.loc[nonempty].copy()
+    signature=signature.loc[nonempty]
+    if a.empty:
+        return a
+    a['_listing_fingerprint']=pd.util.hash_pandas_object(signature,index=False).to_numpy()
+    a=a.drop_duplicates('_listing_fingerprint',keep='last')
+    return a.drop(columns=['_listing_fingerprint'])
+
+
+def _independent_used_ads(ads: pd.DataFrame, asof):
+    """Shared, causal independent-listing filter for both risk directions.
+
+    A new token for the same vehicle is not extra evidence. Missing listing
+    text cannot certify independence; never count factory quotes or dates
+    at/after the forecast asof.
+    """
+    if not {'title','description'}.intersection(ads.columns):
+        log.warning('Market veto skipped: no listing text for deduplication')
+        return pd.DataFrame(), 0
+    optional=['source','copy_label_suspicious','title','description',
+              'city','district','seller_type','mileage']
+    columns=list(dict.fromkeys(CELL+['date','token','price']+
+                               [col for col in optional if col in ads]))
+    a=_normalize(ads.loc[:,columns])
+    if 'source' in a:
+        a=a[a.source.astype('string').str.lower().str.strip().eq('ads')]
+    if 'copy_label_suspicious' in a:
+        suspicious=pd.to_numeric(a.copy_label_suspicious,errors='coerce').fillna(0)
+        a=a[suspicious.eq(0)]
+    a['date']=pd.to_datetime(a.date,errors='coerce').dt.normalize()
+    a['price']=pd.to_numeric(a.price,errors='coerce')
+    end=pd.Timestamp(asof).normalize()
+    a=a.loc[a.date.ge(end-pd.Timedelta(days=LOOKBACK_DAYS)) &
+            a.date.lt(end) & a.price.gt(0) & np.isfinite(a.price) &
+            a.token.notna()].sort_values('date').drop_duplicates('token',keep='last').copy()
+    if a.empty:
+        return a,0
+    count=len(a)
+    a=dedupe_listing_fingerprints(a)
+    return a,count-len(a)
+
+
 def detect_observed_over20(surface: pd.DataFrame, ads: pd.DataFrame, asof):
     """Return {(curve key)} and transparent evidence stats.
 
@@ -68,16 +129,8 @@ def detect_observed_over20(surface: pd.DataFrame, ads: pd.DataFrame, asof):
         raise ValueError('Duplicate surface cell coordinates')
     s['price_center'] = pd.to_numeric(s.price_center,errors='coerce')
     s = s[s.price_center.gt(0) & np.isfinite(s.price_center)]
-    a = _normalize(ads)
-    if 'source' in a:
-        a = a[a.source.astype('string').str.lower().str.strip().eq('ads')]
-    a['date'] = pd.to_datetime(a.date,errors='coerce').dt.normalize()
-    a['price'] = pd.to_numeric(a.price,errors='coerce')
     end = pd.Timestamp(asof).normalize()
-    a = a[a.date.ge(end - pd.Timedelta(days=LOOKBACK_DAYS)) & a.date.lt(end) &
-          a.price.gt(0) & np.isfinite(a.price) & a.token.notna()].copy()
-    # A relisted token is ONE independent observation; latest quote wins.
-    a = a.sort_values('date').drop_duplicates('token', keep='last')
+    a, _ = _independent_used_ads(ads, asof)
     if a.empty or s.empty:
         return set(), pd.DataFrame()
     m = a.merge(s[CELL+['price_center']],on=CELL,how='inner',validate='many_to_one')
@@ -144,58 +197,15 @@ def detect_observed_under20(surface: pd.DataFrame, ads: pd.DataFrame, asof):
         raise ValueError('Missing date/token/price in cleaned used ads')
     if 'price_center' not in surface:
         raise ValueError('Missing final price_center')
-    if not {'title', 'description'}.intersection(ads.columns):
-        log.warning('Underprice guard skipped: no listing text for relist detection')
-        return set(), pd.DataFrame()
-
     s = _normalize(surface[CELL + ['price_center']])
     if s.duplicated(CELL).any():
         raise ValueError('Duplicate surface cell coordinates')
     s['price_center'] = pd.to_numeric(s.price_center, errors='coerce')
     s = s[s.price_center.gt(0) & np.isfinite(s.price_center)]
-
-    optional = ['source', 'copy_label_suspicious', 'title', 'description',
-                'city', 'district', 'seller_type', 'mileage']
-    columns = list(dict.fromkeys(CELL + ['date', 'token', 'price'] +
-                                 [col for col in optional if col in ads]))
-    a = _normalize(ads.loc[:, columns])
-    if 'source' in a:
-        a = a[a.source.astype('string').str.lower().str.strip().eq('ads')]
-    if 'copy_label_suspicious' in a:
-        suspicious = pd.to_numeric(a.copy_label_suspicious, errors='coerce').fillna(0)
-        a = a[suspicious.eq(0)]
-    a['date'] = pd.to_datetime(a.date, errors='coerce').dt.normalize()
-    a['price'] = pd.to_numeric(a.price, errors='coerce')
     end = pd.Timestamp(asof).normalize()
-    a = a.loc[
-        a.date.ge(end - pd.Timedelta(days=LOOKBACK_DAYS)) & a.date.lt(end) &
-        a.price.gt(0) & np.isfinite(a.price) & a.token.notna()
-    ].sort_values('date').drop_duplicates('token', keep='last').copy()
+    a, relisted = _independent_used_ads(ads, asof)
     if a.empty or s.empty:
         return set(), pd.DataFrame()
-
-    # Only the text needed to identify a repeated listing is retained.  Price
-    # is intentionally excluded: a seller repricing the same ad is still one
-    # observation.  Ads with no title AND no description cannot independently
-    # certify an underprice, since relisting cannot be ruled out.
-    signature_columns = CELL[:-1] + ['mileage_bucket']
-    signature = a[signature_columns].copy()
-    for col in ['title', 'description', 'city', 'district', 'seller_type']:
-        values = (a[col] if col in a else pd.Series('', index=a.index))
-        values = values.fillna('').astype(str).str.lower().str.replace(
-            r'\s+', ' ', regex=True).str.strip()
-        signature[col] = values.str.slice(0, 180) if col == 'description' else values
-    if 'mileage' in a:
-        signature['mileage'] = pd.to_numeric(a.mileage, errors='coerce').fillna(-1)
-    missing_text = signature.title.eq('') & signature.description.eq('')
-    if missing_text.any():
-        a = a.loc[~missing_text].copy()
-        signature = signature.loc[~missing_text].copy()
-    if a.empty:
-        return set(), pd.DataFrame()
-    a['_listing_fingerprint'] = pd.util.hash_pandas_object(signature, index=False).to_numpy()
-    original_count = len(a)
-    a = a.drop_duplicates('_listing_fingerprint', keep='last')
 
     m = a.merge(s[CELL + ['price_center']], on=CELL, how='inner', validate='many_to_one')
     if m.empty:
@@ -241,7 +251,7 @@ def detect_observed_under20(surface: pd.DataFrame, ads: pd.DataFrame, asof):
         pp[CURVE + ['ads_n', 'days_n']].assign(reason='MULTI_BUCKET_CURVE_UNDER20'),
     ], ignore_index=True)
     log.info('Observed market under20: asof=%s matched=%s relisted=%s exact=%s pooled=%s curves=%s',
-             end.date(), len(m), original_count - len(a), len(ex), len(pp), len(rejected))
+             end.date(), len(m), relisted, len(ex), len(pp), len(rejected))
     return set(map(tuple, rejected[CURVE].itertuples(index=False, name=None))), evidence
 
 

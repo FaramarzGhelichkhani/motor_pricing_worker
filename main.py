@@ -69,7 +69,9 @@ def job_train_and_transfer():
     try:
         # 1. اجرای ماژول آموزش مدل (CatBoost)
         print("Training models and estimations...")
-        run_price_estimation_pipeline()
+        result = run_price_estimation_pipeline()
+        if result is not True:
+            raise RuntimeError(f'Nightly price estimation not published: {result}')
         
         # 2. انتقال به دیتابیس سایت
         # print("Transferring data to remote site...")
