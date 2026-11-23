@@ -45,6 +45,34 @@ def _normalize(d: pd.DataFrame) -> pd.DataFrame:
     return x
 
 
+def dedupe_listing_fingerprints(ads: pd.DataFrame) -> pd.DataFrame:
+    """Reject relists with new tokens; usable for prior-market and future OOF.
+
+    Prices are excluded from the fingerprint so a repriced ad remains one
+    observation. An ad without either title or description cannot certify
+    independence. This does not prove sellers are different.
+    """
+    if not {'title','description'}.intersection(ads.columns):
+        return ads.iloc[0:0].copy()
+    a=ads.copy()
+    signature=a[CELL].copy()
+    for col in ['title','description','city','district','seller_type']:
+        values=(a[col] if col in a else pd.Series('',index=a.index))
+        values=(values.fillna('').astype(str).str.lower()
+                .str.replace(r'\s+',' ',regex=True).str.strip())
+        signature[col]=values.str.slice(0,180) if col=='description' else values
+    if 'mileage' in a:
+        signature['mileage']=pd.to_numeric(a.mileage,errors='coerce').fillna(-1)
+    nonempty=~(signature.title.eq('') & signature.description.eq(''))
+    a=a.loc[nonempty].copy()
+    signature=signature.loc[nonempty]
+    if a.empty:
+        return a
+    a['_listing_fingerprint']=pd.util.hash_pandas_object(signature,index=False).to_numpy()
+    a=a.drop_duplicates('_listing_fingerprint',keep='last')
+    return a.drop(columns=['_listing_fingerprint'])
+
+
 def _independent_used_ads(ads: pd.DataFrame, asof):
     """Shared, causal independent-listing filter for both risk directions.
 
@@ -73,22 +101,8 @@ def _independent_used_ads(ads: pd.DataFrame, asof):
             a.token.notna()].sort_values('date').drop_duplicates('token',keep='last').copy()
     if a.empty:
         return a,0
-    signature=a[CELL].copy()
-    for col in ['title','description','city','district','seller_type']:
-        values=(a[col] if col in a else pd.Series('',index=a.index))
-        values=(values.fillna('').astype(str).str.lower()
-                .str.replace(r'\s+',' ',regex=True).str.strip())
-        signature[col]=values.str.slice(0,180) if col=='description' else values
-    if 'mileage' in a:
-        signature['mileage']=pd.to_numeric(a.mileage,errors='coerce').fillna(-1)
-    nonempty=~(signature.title.eq('') & signature.description.eq(''))
-    a=a.loc[nonempty].copy()
-    signature=signature.loc[nonempty]
-    if a.empty:
-        return a,0
-    a['_listing_fingerprint']=pd.util.hash_pandas_object(signature,index=False).to_numpy()
     count=len(a)
-    a=a.drop_duplicates('_listing_fingerprint',keep='last')
+    a=dedupe_listing_fingerprints(a)
     return a,count-len(a)
 
 
