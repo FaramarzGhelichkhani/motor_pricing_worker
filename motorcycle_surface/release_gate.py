@@ -51,7 +51,9 @@ def _risk_metrics(d, *, repeats, seed=1241):
                 tail15_pct=round(float(d.bad15.mean()*100),3),
                 tail20_pct=round(float(d.bad20.mean()*100),3),
                 upper95_model_bootstrap_tail15_pct=round(upper15,3),
-                upper95_model_bootstrap_tail20_pct=round(upper20,3))
+                upper95_model_bootstrap_tail20_pct=round(upper20,3),
+                upper95_model_bootstrap_tail15_pct_raw=upper15,
+                upper95_model_bootstrap_tail20_pct_raw=upper20)
 
 def validate_recent_oof_release(builder, *, max_tail15_upper_pct=5.0,
                                 max_tail20_upper_pct=2.0, min_targets=100,
@@ -122,7 +124,7 @@ def validate_recent_oof_release(builder, *, max_tail15_upper_pct=5.0,
     if (primary['n']<min_targets or primary['models']<min_motorcycles or
         primary['weeks']<weeks):
         raise ReleaseRiskError('Insufficient release validation',report)
-    if (primary['upper95_model_bootstrap_tail15_pct']>max_tail15_upper_pct or
-        primary['upper95_model_bootstrap_tail20_pct']>max_tail20_upper_pct):
+    if (primary['upper95_model_bootstrap_tail15_pct_raw']>max_tail15_upper_pct or
+        primary['upper95_model_bootstrap_tail20_pct_raw']>max_tail20_upper_pct):
         raise ReleaseRiskError('Release blocked: chronological policy risk too high',report)
     return report
