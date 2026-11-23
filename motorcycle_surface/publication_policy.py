@@ -10,8 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
+from .severe_oof_guard import held_severe_curve_reasons
 
-POLICY_VERSION = 'USED_RELEASE_FINAL_10_ALL_AGE_DUPLICATE_2PCT_CURRENT_YEAR_AND_BIDIRECTIONAL_MARKET'
+POLICY_VERSION = 'USED_RELEASE_FINAL_11_CAUSAL_SEVERE_CURVE_GUARD'
 IDENTITY = ['motorcycle_model_id', 'real_brand', 'real_model', 'is_copy']
 GROUP = IDENTITY + ['model_variant']
 CURVE = GROUP + ['age', 'condition_tier']
@@ -54,6 +55,8 @@ class PublicationConfig:
     current_year_evidence_guard_enabled: bool = True
     current_year_min_n30: int = 3
     current_year_min_n120: int = 10
+    severe_recovery_error_pct: float = 15.0
+    severe_recovery_weeks: int = 2
 
 
 def _norm(df):
@@ -107,53 +110,14 @@ def build_evidence(history, asof, cfg: PublicationConfig):
 
 
 def confirmed_20pct_curves(history, asof, cfg: PublicationConfig):
-    """Find historically confirmed bad price curves, without using future labels.
-
-    A curve is blocked only after its independent next-week targets show the
-    SAME direction of error >20% in at least two *completed* weekly origins.
-    Evidence must have >=3 unique ads, >=2 observed days and IQR <=20%.
-    No direct ads are required for other mileage buckets of the curve.
-
-    This CANNOT identify an error in a future week which was never previously
-    observed; historical evidence is necessarily a lagging signal.
-    """
-    if history is None or history.empty:
-        return set()
-    required = set(CURVE + ['asof', 'price_center', 'actual_independent',
-                            'future_unique_ads', 'future_observed_days',
-                            'future_iqr_pct'])
-    missing = required - set(history.columns)
-    if missing:
-        raise ValueError(f'Missing historical price evidence: {sorted(missing)}')
-    h = _norm(history)
-    h['_origin'] = pd.to_datetime(h['asof'], errors='coerce').dt.normalize()
-    completed_through = pd.Timestamp(asof).normalize() - pd.Timedelta(days=7)
-    h = h.loc[h['_origin'].notna() & h['_origin'].le(completed_through)].copy()
-    for col in ['price_center', 'actual_independent', 'future_unique_ads',
-                'future_observed_days', 'future_iqr_pct']:
-        h[col] = pd.to_numeric(h[col], errors='coerce')
-    h = h.loc[
-        h.price_center.gt(0) & np.isfinite(h.price_center) &
-        h.actual_independent.gt(0) & np.isfinite(h.actual_independent) &
-        h.future_unique_ads.ge(3) & h.future_observed_days.ge(2) &
-        h.future_iqr_pct.between(0, 20)
-    ].copy()
-    if h.empty:
-        return set()
-    # Only one observation per cell and forecast origin.  Two mileage buckets
-    # from a single week must not masquerade as two independent weeks.
-    h = h.sort_values('_origin').drop_duplicates(['_origin'] + CELL, keep='last')
-    error = 100.0 * (h.price_center / h.actual_independent - 1.0)
-    h['_side'] = np.select([error > 20.0, error < -20.0],
-                           ['OVER20', 'UNDER20'], default='OK')
-    h = h[h['_side'].ne('OK')]
-    if h.empty:
-        return set()
-    recurring = (h.groupby(CURVE + ['_side'], dropna=False)['_origin']
-                  .nunique().reset_index(name='_weeks'))
-    recurring = recurring[recurring['_weeks'].ge(2)]
-    return set(map(tuple, recurring[CURVE].itertuples(index=False, name=None)))
-
+    """Backward-compatible set of curves held by the causal severe OOF guard."""
+    reasons, _ = held_severe_curve_reasons(
+        history, asof, min_ads=cfg.min_future_ads,
+        min_days=cfg.min_future_days,
+        max_iqr_pct=cfg.max_future_iqr_pct,
+        recovery_error_pct=cfg.severe_recovery_error_pct,
+        recovery_weeks=cfg.severe_recovery_weeks)
+    return set(reasons)
 
 
 def _mid_price_column(frame: pd.DataFrame) -> str:
@@ -445,7 +409,13 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
     risk_map = hist.set_index(IDENTITY).to_dict('index') if len(hist) else {}
     midkey = d[IDENTITY].apply(tuple,axis=1)
     curvekey = d[CURVE].apply(tuple,axis=1)
-    confirmed_severe = curvekey.isin(confirmed_20pct_curves(history, asof, cfg))
+    severe_reasons, _ = held_severe_curve_reasons(
+        history, asof, min_ads=cfg.min_future_ads,
+        min_days=cfg.min_future_days, max_iqr_pct=cfg.max_future_iqr_pct,
+        recovery_error_pct=cfg.severe_recovery_error_pct,
+        recovery_weeks=cfg.severe_recovery_weeks)
+    confirmed_severe = curvekey.isin(severe_reasons)
+    d['oof_severe_reason'] = curvekey.map(lambda key: severe_reasons.get(key, ''))
     d['oof_n'] = midkey.map(lambda k: risk_map.get(k,{}).get('oof_n',0)).fillna(0).astype(int)
     d['oof_weeks'] = midkey.map(lambda k: risk_map.get(k,{}).get('oof_weeks',0)).fillna(0).astype(int)
     d['oof_median_abs_pct'] = midkey.map(lambda k: risk_map.get(k,{}).get('oof_median_abs_pct',np.nan))
@@ -495,6 +465,9 @@ def apply_publication(surface, asof, history, cfg: PublicationConfig = Publicati
         ['HOLD_INVALID_CURVE','HOLD_INCOMPLETE_CURVE','HOLD_OOF_SEVERE','HOLD_CONFIRMED_OVER_UNDER_20',
          'HOLD_WEAK_MODEL_MARKET','HOLD_WEAK_VARIANT_MARKET'],
         default='PUBLISH_OOF_CHECKED')
+    # Record the precise severe direction, even when a broader model guard also holds.
+    distinct_severe = confirmed_severe & ~curve_invalid & ~curve_incomplete & ~badmodel
+    d.loc[distinct_severe, 'publication_status'] = d.loc[distinct_severe, 'oof_severe_reason']
     # All-age duplicate curves are resolved by independent per-curve quality evidence.
     d['age_plateau_held'] = False
     if cfg.age_plateau_guard_enabled:
