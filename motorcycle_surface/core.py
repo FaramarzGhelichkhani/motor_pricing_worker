@@ -24,8 +24,8 @@ from .database import SurfaceDatabaseMixin
 from .reliability import HierarchicalSurfaceReliability
 from .bounded_calibration_v3 import NarrowIntervalPositioner
 from .local_bias_v7 import LocalSelectiveBiasCalibrator, LocalRiskConfig, downward_monotone_envelope
-from .publication_policy import apply_publication, PublicationConfig, POLICY_VERSION
-from .recent_market_guard import apply_recent_market_guard, dedupe_listing_fingerprints
+from .publication_policy import POLICY_VERSION
+from .publication_pipeline import apply_complete_publication, dedupe_listing_fingerprints
 from .weighted_isotonic_v3 import weighted_ragged_isotonic
 from .monotone_utils import product_order_min_closure
 from .coverage_policy_v4 import apply_age_window_certificate
@@ -1378,10 +1378,7 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                 decisions = fold_grid[CELL].copy()
                 decisions['fold_publication_allowed'] = False
             else:
-                historic_gate = apply_publication(fold_grid, dt, earlier, PublicationConfig())
-                # Mirror the complete live policy at the historical decision time.
-                # Market guard uses strictly prior ads, never this fold's future labels.
-                historic_gate = apply_recent_market_guard(historic_gate, self.ads, dt)
+                historic_gate = apply_complete_publication(fold_grid, self.ads, dt, earlier)
                 decisions = (historic_gate[CELL + ['publication_allowed']]
                     .rename(columns={'publication_allowed':'fold_publication_allowed'}))
             # Fold grid normalizes is_copy into int8 inside the strict policy;
@@ -1713,12 +1710,10 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                  self.config.coverage_publication_mode)
 
         # Sole, fail-closed publication authority; no V10/V13/V14/V15 fallback.
-        result=apply_publication(result, self.asof, self.backtest_cells,
-                                 PublicationConfig())
-        # Post-prediction check against USED ads available before the run date.
-        # Stage 1 age reference is already included in price_center for cells
-        # without exact listings; no factory data or future ads are consulted.
-        result=apply_recent_market_guard(result, self.ads, self.asof)
+        # Single causal chain: OOF curve -> independent market -> systemic variant/model.
+        # The identical function is used in every historical fold above.
+        result=apply_complete_publication(result, self.ads, self.asof,
+                                          self.backtest_cells)
         result['is_reliable']=result['publication_allowed'].astype(bool)
         if result['is_factory'].any():
             raise AssertionError('Factory price leaked into used-price surface')
