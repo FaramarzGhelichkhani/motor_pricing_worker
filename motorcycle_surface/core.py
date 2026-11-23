@@ -25,7 +25,7 @@ from .reliability import HierarchicalSurfaceReliability
 from .bounded_calibration_v3 import NarrowIntervalPositioner
 from .local_bias_v7 import LocalSelectiveBiasCalibrator, LocalRiskConfig, downward_monotone_envelope
 from .publication_policy import apply_publication, PublicationConfig, POLICY_VERSION
-from .recent_market_guard import apply_recent_market_guard
+from .recent_market_guard import apply_recent_market_guard, dedupe_listing_fingerprints
 from .weighted_isotonic_v3 import weighted_ragged_isotonic
 from .monotone_utils import product_order_min_closure
 from .coverage_policy_v4 import apply_age_window_certificate
@@ -1171,6 +1171,9 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
             unique=pd.concat([known,missing],ignore_index=True)
         else:
             unique=t
+        # Use the same independent-listing fingerprint as the live market veto.
+        # Future labels are computed only after their forecast week is complete.
+        unique=dedupe_listing_fingerprints(unique)
         g=unique.groupby(CELL,dropna=False)
         evidence=g.price.agg(actual_independent='median',future_unique_ads='size',
                              _q25=lambda v:v.quantile(.25),
