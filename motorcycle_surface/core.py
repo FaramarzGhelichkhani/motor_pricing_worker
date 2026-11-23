@@ -1376,6 +1376,9 @@ class MotorcyclePriceSurface(SurfaceDatabaseMixin):
                 decisions['fold_publication_allowed'] = False
             else:
                 historic_gate = apply_publication(fold_grid, dt, earlier, PublicationConfig())
+                # Mirror the complete live policy at the historical decision time.
+                # Market guard uses strictly prior ads, never this fold's future labels.
+                historic_gate = apply_recent_market_guard(historic_gate, self.ads, dt)
                 decisions = (historic_gate[CELL + ['publication_allowed']]
                     .rename(columns={'publication_allowed':'fold_publication_allowed'}))
             # Fold grid normalizes is_copy into int8 inside the strict policy;
