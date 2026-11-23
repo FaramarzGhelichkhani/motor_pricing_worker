@@ -81,7 +81,7 @@ def test_future_labels_cannot_change_asof_model_risk_decision():
 def test_recent_AND_historical_is_required():
     s,h=fixture_rows(bad_variants=('BASE',))
     # Current recent origins are good; all historical older origins are bad.
-    h.loc[h.asof.isin(['2026-11-07','2026-11-14']),'price_center']=102.
+    h.loc[h['asof'].isin(['2026-11-07','2026-11-14']),'price_center']=102.
     got=apply_hierarchical_oof_guard(s,h,'2026-11-22')
     assert got.publication_allowed.all()
 
